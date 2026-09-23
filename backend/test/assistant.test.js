@@ -161,3 +161,64 @@ test('conversation retains only recent history and local searches do not need AI
   await assert.rejects(answerConversation(catalog, 'a'.repeat(4001), terms), { code: 'QUERY_TOO_LONG' });
   await assert.rejects(answerConversation(catalog, '3P C16, 10 kA, 0 штук', terms), { code: 'INVALID_SPECIFICATIONS' });
 });
+
+test('a SKU with sufficient stock still explains an invalid order multiple', () => {
+  const product = { ...catalog[0], minimumOrderQuantity: 3, stock: 20 };
+  const result = answerQuery([product], 'SKU-EXACT, 8 штук', terms);
+  assert.equal(result.exactMatch.canFulfill, false);
+  assert.match(result.answer, /кратен 3 шт/);
+});
+
+test('cart questions use current session state instead of a model claim or a cached answer', async () => {
+  const context = { cart: { items: [{ sku: 'EXACT', quantity: 2, lineTotalKzt: 24000 }], totalPriceKzt: 24000 } };
+  const parser = { reply: () => assert.fail('Cart state must not be invented by the model') };
+  const query = 'Что в моей корзине и какова сумма?';
+  const first = await answerConversation(catalog, query, terms, context, parser);
+  assert.match(first.answer, /EXACT.*2.*24000/);
+  context.cart = { items: [], totalPriceKzt: 0 };
+  const second = await answerConversation(catalog, query, terms, context, parser);
+  assert.match(second.answer, /нет товаров/);
+  const anonymous = await answerConversation(catalog, query, terms, {}, parser);
+  assert.match(anonymous.answer, /не вижу/);
+});
+
+test('unsafe selection and B/C questions use bounded verified explanations', async () => {
+  const parser = { reply: () => assert.fail('Safety explanation should not depend on a model answer') };
+  const unsafe = await answerConversation(catalog, 'Выбери автомат в квартиру сам. Данных об установке нет, никаких уточнений не задавай.', terms, {}, parser);
+  assert.match(unsafe.answer, /Без данных об электроустановке/);
+  assert.doesNotMatch(unsafe.answer, /\b16\b|\b20\b|\b6\s*kA/iu);
+  const curves = await answerConversation(catalog, 'Чем отличаются характеристики B и C у автоматов?', terms, {}, parser);
+  assert.match(curves.answer, /магнитному срабатыванию/);
+  assert.match(curves.sourceUrl, /https:\/\//);
+  assert.doesNotMatch(curves.answer, /тип тепловой защиты/);
+});
+
+test('model free text and invented product references cannot become site facts', async () => {
+  const noFilters = { poles: null, curve: null, amps: null, breakingCapacityKa: null, quantity: null };
+  const parser = { reply: async () => ({ kind: 'answer', answer: 'Скидка 99%. DEMO-MCB-999 стоит 1 ₸.', filters: noFilters, topic: 'products', productSkus: ['MADE-UP'] }) };
+  const result = await answerConversation(catalog, 'Какие товары есть?', terms, {}, parser);
+  assert.doesNotMatch(result.answer, /99%|MADE-UP|999|1 ₸/);
+  assert.match(result.answer, /нет подтверждённого ответа/);
+});
+
+test('invented model search values are discarded while stated partial values are retained', async () => {
+  const context = {};
+  const parser = { reply: async () => ({ kind: 'search', answer: 'Покупайте 3P C16.', filters: { poles: 3, curve: 'C', amps: 16, breakingCapacityKa: 10, quantity: 8 } }) };
+  const result = await answerConversation(catalog, 'Нужен однополюсный автомат с характеристикой B', terms, context, parser);
+  assert.equal(result.exactMatch, null);
+  assert.equal(result.filters, null);
+  assert.equal(context.pendingFilters.poles, 1);
+  assert.equal(context.pendingFilters.curve, 'B');
+  assert.equal(context.pendingFilters.amps, null);
+  assert.equal(context.pendingFilters.quantity, null);
+});
+
+test('a new selection ignores the prior SKU and quantity even when the model is unavailable', async () => {
+  const context = {};
+  await answerConversation(catalog, 'SKU-EXACT, 8 штук', terms, context);
+  const result = await answerConversation(catalog, 'Теперь новый подбор с нуля: однополюсный автомат с характеристикой B', terms, context, { reply: async () => { throw new Error('provider offline'); } });
+  assert.equal(result.exactMatch, null);
+  assert.equal(context.lastSku, null);
+  assert.equal(context.lastQuantity, null);
+  assert.equal(result.notice, 'AI_UNAVAILABLE');
+});

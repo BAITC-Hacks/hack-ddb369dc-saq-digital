@@ -3,6 +3,9 @@
   "catalogPath": "../data/catalog.json",
   "frontendDistPath": "../frontend/dist",
   "cartUrl": "/cart",
+  "assistantReference": {
+    "tripCurvesUrl": "https://www.se.com/br/pt/faqs/FA332630/"
+  },
   "partnerDetailUrl": "https://ekt.kz/api/products/detail",
   "partner": {
     "maxPages": 2000,
@@ -23,11 +26,25 @@
     "maxJobsPerSession": 5,
     "resultTtlMs": 900000
   },
+  "trustProxy": false,
+  "trustedProxyHost": "frontend",
+  "resourceLimits": {
+    "maxSessions": 1000,
+    "sessionIdleTtlMs": 1800000,
+    "windowMs": 60000,
+    "sessionCreationsPerIp": 30,
+    "anonymousAiCallsPerIp": 2,
+    "aiCallsPerSession": 6,
+    "aiCallsPerIp": 10,
+    "maxRateLimitClients": 2000
+  },
   "openai": {
     "responsesUrl": "https://api.openai.com/v1/responses",
     "model": "gpt-4.1-mini",
     "maxOutputTokens": 768,
     "maxCalls": 20,
+    "budgetWindowMs": 60000,
+    "maxCacheEntries": 256,
     "timeoutMs": 15000
   }
 }

@@ -76,3 +76,10 @@ test('successful confirmation retries survive a removed product and conflict bef
   assert.throws(() => cart.add({ ...request, confirmationId: 'new' }), { code: 'SKU_NOT_FOUND' });
   assert.deepEqual(cart.snapshot(), original);
 });
+
+test('rejects oversized confirmation IDs before retaining cart state', () => {
+  const cart = new Cart(catalog);
+  assert.throws(() => cart.add({ sku: 'EXACT', quantity: 1, confirmed: true, confirmationId: 'x'.repeat(257) }), { code: 'CONFIRMATION_ID_REQUIRED' });
+  assert.deepEqual(cart.snapshot().items, []);
+  assert.equal(cart.confirmations.size, 0);
+});

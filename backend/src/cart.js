@@ -20,8 +20,8 @@ export class Cart {
     if (confirmed !== true) {
       throw new ApiError(400, 'CONFIRMATION_REQUIRED', 'Товар добавляется только после явного подтверждения.');
     }
-    if (typeof confirmationId !== 'string' || !confirmationId.trim()) {
-      throw new ApiError(400, 'CONFIRMATION_ID_REQUIRED', 'Укажите идентификатор подтверждения.');
+    if (typeof confirmationId !== 'string' || !confirmationId.trim() || confirmationId.length > 256) {
+      throw new ApiError(400, 'CONFIRMATION_ID_REQUIRED', 'Укажите идентификатор подтверждения длиной до 256 символов.');
     }
     if (!Number.isSafeInteger(quantity) || quantity <= 0) {
       throw new ApiError(400, 'INVALID_QUANTITY', 'Количество должно быть положительным целым числом.');

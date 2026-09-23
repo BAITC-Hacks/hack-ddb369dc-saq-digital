@@ -1,0 +1,129 @@
+{
+  "date": "2026-09-23T11:39:18.362Z",
+  "origin": "http://localhost:8080",
+  "viewports": [
+    {
+      "width": 1280,
+      "height": 900,
+      "pageOverflow": false,
+      "widgetRect": {
+        "left": 870,
+        "right": 1260,
+        "top": 340.21875,
+        "bottom": 880
+      },
+      "sendVisible": true
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "pageOverflow": false,
+      "widgetRect": {
+        "left": 10,
+        "right": 380,
+        "top": 300.765625,
+        "bottom": 834
+      },
+      "sendVisible": true
+    },
+    {
+      "width": 320,
+      "height": 568,
+      "pageOverflow": false,
+      "widgetRect": {
+        "left": 10,
+        "right": 310,
+        "top": 114.96875,
+        "bottom": 558
+      },
+      "sendVisible": true
+    },
+    {
+      "width": 844,
+      "height": 390,
+      "pageOverflow": false,
+      "widgetRect": {
+        "left": 419,
+        "right": 809,
+        "top": 12,
+        "bottom": 378
+      },
+      "sendVisible": true
+    }
+  ],
+  "controls": [
+    {
+      "case": "untrusted-answer-xss",
+      "htmlShownLiterally": true,
+      "injectedElements": 0,
+      "marker": null,
+      "unsafeLinks": 0
+    }
+  ],
+  "failures": [
+    {
+      "id": "AUD-13",
+      "rootBlank": true,
+      "replacedCartResponses": 1,
+      "errors": [
+        "TypeError: Cannot read properties of null (reading 'length')\n    at x3 (http://localhost:8080/assets/index-Bv6KssZt.js:49:115104)\n    at X1 (http://localhost:8080/assets/index-Bv6KssZt.js:48:49647)\n    at sc (http://localhost:8080/assets/index-Bv6KssZt.js:48:72641)\n    at v8 (http://localhost:8080/assets/index-Bv6KssZt.js:48:83638)\n    at P8 (http://localhost:8080/assets/index-Bv6KssZt.js:48:129319)\n    at br (http://localhost:8080/assets/index-Bv6KssZt.js:48:128365)\n    at Yc (http://localhost:8080/assets/index-Bv6KssZt.js:48:128197)\n    at J8 (http://localhost:8080/assets/index-Bv6KssZt.js:48:124860)\n    at f6 (http://localhost:8080/assets/index-Bv6KssZt.js:48:137401)\n    at MessagePort.tt (http://localhost:8080/assets/index-Bv6KssZt.js:25:1645)"
+      ]
+    }
+  ],
+  "intercepted": [
+    {
+      "mode": "xss",
+      "upstreamStatus": 200
+    },
+    {
+      "mode": "lost",
+      "upstreamStatus": 200,
+      "request": {
+        "sku": "DEMO-MCB-040",
+        "quantity": 2,
+        "confirmed": true,
+        "confirmationId": "[synthetic audit confirmation]"
+      }
+    },
+    {
+      "mode": "malformed",
+      "upstreamStatus": 200
+    }
+  ],
+  "errors": [
+    "TypeError: Cannot read properties of null (reading 'length')\n    at x3 (http://localhost:8080/assets/index-Bv6KssZt.js:49:115104)\n    at X1 (http://localhost:8080/assets/index-Bv6KssZt.js:48:49647)\n    at sc (http://localhost:8080/assets/index-Bv6KssZt.js:48:72641)\n    at v8 (http://localhost:8080/assets/index-Bv6KssZt.js:48:83638)\n    at P8 (http://localhost:8080/assets/index-Bv6KssZt.js:48:129319)\n    at br (http://localhost:8080/assets/index-Bv6KssZt.js:48:128365)\n    at Yc (http://localhost:8080/assets/index-Bv6KssZt.js:48:128197)\n    at J8 (http://localhost:8080/assets/index-Bv6KssZt.js:48:124860)\n    at f6 (http://localhost:8080/assets/index-Bv6KssZt.js:48:137401)\n    at MessagePort.tt (http://localhost:8080/assets/index-Bv6KssZt.js:25:1645)"
+  ],
+  "observations": [
+    {
+      "id": "OBS-01",
+      "scenario": "Write succeeded, response replaced with HTTP503, reload, repeat same selection and confirm",
+      "afterLost": {
+        "items": [
+          {
+            "sku": "DEMO-MCB-040",
+            "name": "Автомат Demo Line 1P C16 4.5 kA",
+            "quantity": 2,
+            "unitPriceKzt": 900,
+            "lineTotalKzt": 1800
+          }
+        ],
+        "totalPriceKzt": 1800,
+        "cartUrl": "/cart"
+      },
+      "afterRetry": {
+        "items": [
+          {
+            "sku": "DEMO-MCB-040",
+            "name": "Автомат Demo Line 1P C16 4.5 kA",
+            "quantity": 4,
+            "unitPriceKzt": 900,
+            "lineTotalKzt": 3600
+          }
+        ],
+        "totalPriceKzt": 3600,
+        "cartUrl": "/cart"
+      }
+    }
+  ],
+  "auditedRevision": "e373a326aff28a8066b88900aabd8a82afd5414b"
+}

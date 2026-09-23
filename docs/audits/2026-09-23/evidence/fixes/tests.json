@@ -1,0 +1,18 @@
+{
+  "date": "2026-09-23T12:21:44.524Z",
+  "branch": "bugfix/ai-project-adversarial-audit",
+  "commands": {
+    "baseline": "npm test (105 backend, 77 frontend before proxy-only change)",
+    "backendFinal": "npm --prefix backend test (107 passed)",
+    "proxyTargeted": "node --test backend/test/trusted-proxy.test.js (2 passed)",
+    "audit": "node --test backend/audit/regressions.mjs",
+    "build": "npm run build",
+    "advisories": "npm --prefix frontend audit --json"
+  },
+  "backendPassed": 107,
+  "frontendPassed": 77,
+  "proxyTargetedPassed": 2,
+  "backendAuditPassed": 23,
+  "productionBuildPassed": true,
+  "frontendAdvisoryCount": 0
+}

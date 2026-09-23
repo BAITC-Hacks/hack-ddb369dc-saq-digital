@@ -1,0 +1,117 @@
+{
+  "revision": "e373a32",
+  "date": "2026-09-23T11:28:09.875Z",
+  "scope": "Isolated server; no OpenAI or partner requests",
+  "controls": [
+    "400 concurrent-batch searches did not change the cart",
+    "32 concurrent identical confirmations added exactly one unit",
+    "Independent session cart remained empty",
+    "20 concurrent distinct cart writes respected stock=12",
+    "14 malformed bodies rejected; missing confirmation, unknown session and endpoint also rejected"
+  ],
+  "sessionLoad": {
+    "count": 1000,
+    "concurrency": 32,
+    "statuses": {
+      "201": 1000
+    },
+    "p50Ms": 14,
+    "p95Ms": 30
+  },
+  "searchLoad": {
+    "count": 400,
+    "concurrency": 16,
+    "statuses": {
+      "200": 400
+    },
+    "p50Ms": 5,
+    "p95Ms": 9
+  },
+  "anonymousCors": "*",
+  "memory": {
+    "timeoutMs": 15000,
+    "exitCode": 134,
+    "killed": false,
+    "exhausted": true,
+    "samples": [
+      {
+        "sessions": 1000,
+        "heapMiB": 22
+      },
+      {
+        "sessions": 2000,
+        "heapMiB": 30
+      },
+      {
+        "sessions": 3000,
+        "heapMiB": 37
+      },
+      {
+        "sessions": 4000,
+        "heapMiB": 40
+      },
+      {
+        "sessions": 5000,
+        "heapMiB": 48
+      },
+      {
+        "sessions": 6000,
+        "heapMiB": 45
+      },
+      {
+        "sessions": 7000,
+        "heapMiB": 46
+      },
+      {
+        "sessions": 8000,
+        "heapMiB": 54
+      },
+      {
+        "sessions": 9000,
+        "heapMiB": 54
+      },
+      {
+        "sessions": 10000,
+        "heapMiB": 61
+      },
+      {
+        "sessions": 11000,
+        "heapMiB": 69
+      },
+      {
+        "sessions": 12000,
+        "heapMiB": 76
+      },
+      {
+        "sessions": 13000,
+        "heapMiB": 52
+      },
+      {
+        "sessions": 14000,
+        "heapMiB": 59
+      },
+      {
+        "sessions": 15000,
+        "heapMiB": 67
+      },
+      {
+        "sessions": 16000,
+        "heapMiB": 74
+      },
+      {
+        "sessions": 17000,
+        "heapMiB": 62
+      },
+      {
+        "sessions": 18000,
+        "heapMiB": 70
+      },
+      {
+        "sessions": 19000,
+        "heapMiB": 77
+      }
+    ],
+    "oldSpaceLimitMiB": 64
+  },
+  "auditedRevision": "e373a326aff28a8066b88900aabd8a82afd5414b"
+}

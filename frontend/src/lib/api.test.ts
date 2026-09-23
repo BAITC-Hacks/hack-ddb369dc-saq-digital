@@ -15,6 +15,7 @@ beforeEach(async () => {
 })
 afterEach(async () => {
   vi.useRealTimers()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   await backend?.close()
@@ -160,4 +161,110 @@ it('reports network failures during body consumption and clears the timeout', as
   await expect(api.getCart()).rejects.toMatchObject({ status: 0, code: 'NETWORK_ERROR' })
   expect(transport).toHaveBeenCalledTimes(1)
   expect(vi.getTimerCount()).toBe(0)
+})
+
+it.each([
+  { items: null, totalPriceKzt: 0 },
+  { items: [null], totalPriceKzt: 0 },
+  { items: [{ sku: 'x', name: 'Product', quantity: -1, unitPriceKzt: 2, lineTotalKzt: -2 }], totalPriceKzt: -2 },
+  { items: [{ sku: 'x', name: 'Product', quantity: 2, unitPriceKzt: 3, lineTotalKzt: 6 }], totalPriceKzt: 4 },
+  { items: [], totalPriceKzt: '0' },
+  { items: [], totalPriceKzt: 0, cartUrl: {} },
+])('rejects a damaged cart response before rendering: %j', async (body) => {
+  const api = await import('./api')
+  await api.ensureSession()
+  transport.mockResolvedValue(new Response(JSON.stringify(body)))
+  await expect(api.getCart()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+})
+
+it.each([null, [], {}, { sessionId: {} }, { sessionId: '' }, { sessionId: 'bad\r\nheader' }])('rejects an invalid session without persisting it: %j', async (body) => {
+  const api = await import('./api')
+  transport.mockResolvedValue(new Response(JSON.stringify(body)))
+  await expect(api.ensureSession()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  expect(sessionStorage.getItem(configuration.sessionStorageKey)).toBeNull()
+  expect(transport).toHaveBeenCalledTimes(1)
+})
+
+it.each([
+  { alternatives: null }, { alternatives: [{ product: {}, reason: 'test' }] }, { exactMatch: { product: null, canFulfill: true } },
+  { answer: {} }, { filters: { poles: 1, curve: 'C', amps: 16, breakingCapacityKa: 6, quantity: -1 } },
+  { notice: {} }, { notice: ['AI_UNAVAILABLE'] }, { intent: ['conversation'] },
+])('rejects a malformed search payload: %j', async (partial) => {
+  const api = await import('./api')
+  await api.ensureSession()
+  const body = { intent: 'conversation', answer: 'Уточните запрос.', filters: null, exactMatch: null, alternatives: [], ...partial }
+  transport.mockResolvedValue(new Response(JSON.stringify(body)))
+  await expect(api.searchCatalog('товары')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+})
+
+it('continues with a shared in-memory session when storage reads and writes are blocked', async () => {
+  for (const method of ['getItem', 'setItem', 'removeItem'] as const) vi.spyOn(Storage.prototype, method).mockImplementation(() => { throw new DOMException('Blocked', 'SecurityError') })
+  const api = await import('./api')
+  await api.getCart()
+  await api.addToCart('DEMO-MCB-040', 2, 'memory-confirmation')
+  expect((await api.getCart()).items[0].quantity).toBe(2)
+  expect(transport.mock.calls.filter(([url]) => String(url).endsWith('/session'))).toHaveLength(1)
+  await backend.close()
+  backend = await startBackend()
+  expect((await api.getCart()).items).toEqual([])
+  expect(transport.mock.calls.filter(([url]) => String(url).endsWith('/session'))).toHaveLength(2)
+})
+
+it('replaces an expired stored session even when storage writes and removals fail', async () => {
+  sessionStorage.setItem(configuration.sessionStorageKey, 'expired-session')
+  for (const method of ['setItem', 'removeItem'] as const) vi.spyOn(Storage.prototype, method).mockImplementation(() => { throw new DOMException('Blocked', 'SecurityError') })
+  const api = await import('./api')
+  expect((await api.getCart()).items).toEqual([])
+  await api.addToCart('DEMO-MCB-040', 2, 'read-only-storage')
+  expect((await api.getCart()).items[0].quantity).toBe(2)
+  expect(sessionStorage.getItem(configuration.sessionStorageKey)).toBe('expired-session')
+  expect(transport.mock.calls.filter(([url]) => String(url).endsWith('/session'))).toHaveLength(1)
+})
+
+it('recovers an uncertain cart write across reload and clears its ID after acknowledged success', async () => {
+  const api = await import('./api')
+  await api.ensureSession()
+  const normal = transport.getMockImplementation()!
+  transport.mockImplementation(async (input, options) => {
+    const response = await normal(input, options)
+    if (String(input).endsWith('/cart') && options?.method === 'POST') throw new TypeError('Response lost')
+    return response
+  })
+  await expect(api.addToCart('DEMO-MCB-040', 2, 'reload-confirmation')).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+  vi.resetModules()
+  transport.mockImplementation(normal)
+  const reloaded = await import('./api')
+  expect((await reloaded.getCart()).items[0].quantity).toBe(2)
+  expect(reloaded.pendingConfirmationId('DEMO-MCB-040', 2)).toBe('reload-confirmation')
+  expect(reloaded.pendingConfirmationId('DEMO-MCB-040', 3)).toBeUndefined()
+  expect((await reloaded.addToCart('DEMO-MCB-040', 2, reloaded.pendingConfirmationId('DEMO-MCB-040', 2)!)).items[0].quantity).toBe(2)
+  expect(reloaded.pendingConfirmationId('DEMO-MCB-040', 2)).toBeUndefined()
+  expect((await reloaded.addToCart('DEMO-MCB-040', 2, 'new-intent')).items[0].quantity).toBe(4)
+})
+
+it('does not reuse pending cart confirmations in a replacement session', async () => {
+  const api = await import('./api')
+  await api.ensureSession()
+  transport.mockRejectedValueOnce(new TypeError('Response lost'))
+  await expect(api.addToCart('DEMO-MCB-040', 2, 'old-confirmation')).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+  expect(api.pendingConfirmationId('DEMO-MCB-040', 2)).toBe('old-confirmation')
+  await backend.close()
+  backend = await startBackend()
+  expect((await api.getCart()).items).toEqual([])
+  expect(api.pendingConfirmationId('DEMO-MCB-040', 2)).toBeUndefined()
+})
+
+it('keeps the pending confirmation when a successful write response does not contain the requested item', async () => {
+  const api = await import('./api')
+  await api.ensureSession()
+  const normal = transport.getMockImplementation()!
+  transport.mockImplementation(async (input, options) => {
+    const response = await normal(input, options)
+    return String(input).endsWith('/cart') && options?.method === 'POST'
+      ? new Response(JSON.stringify({ items: [], totalPriceKzt: 0 })) : response
+  })
+  await expect(api.addToCart('DEMO-MCB-040', 2, 'damaged-write')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' })
+  expect(api.pendingConfirmationId('DEMO-MCB-040', 2)).toBe('damaged-write')
+  transport.mockImplementation(normal)
+  expect((await api.addToCart('DEMO-MCB-040', 2, 'damaged-write')).items[0].quantity).toBe(2)
 })

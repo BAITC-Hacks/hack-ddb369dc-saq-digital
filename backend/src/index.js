@@ -7,6 +7,7 @@ import { loadCatalog } from './catalog.js';
 import { PartnerClient, loadPartnerCatalog } from './partner.js';
 import { OpenAIQueryParser } from './ai.js';
 import { readCatalogCache, writeCatalogCache } from './catalog-cache.js';
+import { trustedProxyFor } from './trusted-proxy.js';
 
 const serverDirectory = fileURLToPath(new URL('..', import.meta.url));
 const configuration = JSON.parse(await readFile(new URL('../config.json', import.meta.url), 'utf8'));
@@ -42,6 +43,8 @@ const queryParser = process.env.APP_MODE === 'live' && process.env.OPENAI_API_KE
     apiKey: process.env.OPENAI_API_KEY,
     maxOutputTokens: configuration.openai.maxOutputTokens,
     maxCalls: configuration.openai.maxCalls,
+    budgetWindowMs: configuration.openai.budgetWindowMs,
+    maxCacheEntries: configuration.openai.maxCacheEntries,
     timeoutMs: configuration.openai.timeoutMs,
   })
   : undefined;
@@ -52,7 +55,12 @@ try {
   if (error.code !== 'ENOENT') throw error;
   staticDirectory = undefined;
 }
-createApp(catalog, { cartUrl: process.env.CART_URL || configuration.cartUrl, purchaseTerms, queryParser, uploads: configuration.uploads, staticDirectory, catalogState }).listen(port, () => console.log(`EKT assistant is listening on port ${port}${staticDirectory ? ' (API + frontend)' : ' (API)'}`));
+const proxy = configuration.trustedProxyHost ? trustedProxyFor(configuration.trustedProxyHost) : undefined;
+if (proxy) {
+  await proxy.refresh();
+  setInterval(() => void proxy.refresh(), 30000).unref();
+}
+createApp(catalog, { cartUrl: process.env.CART_URL || configuration.cartUrl, purchaseTerms, queryParser, uploads: configuration.uploads, staticDirectory, catalogState, resourceLimits: configuration.resourceLimits, trustProxy: proxy?.isTrusted || configuration.trustProxy }).listen(port, () => console.log(`EKT assistant is listening on port ${port}${staticDirectory ? ' (API + frontend)' : ' (API)'}`));
 
 if (usePartner) {
   const scheduleRefresh = (delayMs) => setTimeout(() => void updateCatalog(), delayMs).unref();

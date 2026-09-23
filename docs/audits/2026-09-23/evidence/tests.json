@@ -1,0 +1,64 @@
+{
+  "auditedRevision": "e373a326aff28a8066b88900aabd8a82afd5414b",
+  "recordedAt": "2026-09-23T11:43:01.829Z",
+  "baseline": {
+    "command": "npm test",
+    "backend": {
+      "passed": 69
+    },
+    "frontend": {
+      "passed": 46,
+      "skippedAudit": 3
+    },
+    "exitCode": 0
+  },
+  "backendAudit": {
+    "command": "node --test backend/audit/regressions.mjs",
+    "passed": 0,
+    "failed": 23,
+    "cases": [
+      "✖ AUD-01: reject ambiguous or invalid numbers: 3P C16, 10 kA, -8 штук (4.5728ms)",
+      "✖ AUD-01: reject ambiguous or invalid numbers: 3P C16, 10 kA, 1.5 штуки (2.3638ms)",
+      "✖ AUD-01: reject ambiguous or invalid numbers: 3P C16, -10 kA, 8 штук (0.3372ms)",
+      "✖ AUD-01: reject ambiguous or invalid numbers: 3P C16, 10 kA, 9007199254740993 штук (0.2334ms)",
+      "✖ AUD-01: a fractional capacity without a leading zero must not become ten times larger (0.5614ms)",
+      "✖ AUD-02: a SKU with a quantity in words must preserve that quantity (5.6607ms)",
+      "✖ AUD-02: a certificate follow-up must preserve the selected quantity (39.73ms)",
+      "✖ AUD-03: an unknown SKU must not be replaced with the previous product (19.3258ms)",
+      "✖ AUD-03: an unsuccessful new selection must not reuse an old product (1.0371ms)",
+      "✖ AUD-03: an explicit fresh selection in words must clear the previous product (0.8673ms)",
+      "✖ AUD-04: an explicit brand restriction must not return products of other brands (4.4503ms)",
+      "✖ AUD-04: an explicit price ceiling must not be ignored (0.9075ms)",
+      "✖ AUD-04: a correction must not select the negated rating (0.2964ms)",
+      "✖ AUD-05: comparison of two SKUs must address both products (0.3515ms)",
+      "✖ AUD-05: a combined selection and delivery question must still return the selection (0.2559ms)",
+      "✖ AUD-06: legacy search must not bypass the conversation input limit (95.7109ms)",
+      "✖ AUD-07: anonymous traffic must not exhaust AI for an independent new session (62.93ms)",
+      "✖ AUD-08: oversized JSON must return a client error, not HTTP 500 (6.0131ms)",
+      "✖ AUD-08: unsupported encoding must return a client error, not HTTP 500 (5.7099ms)",
+      "✖ AUD-09: simultaneous identical requests must not duplicate conversation history (0.8951ms)",
+      "✖ AUD-09: late older replies must not overwrite newer conversation state (0.4455ms)",
+      "✖ AUD-10: partner breaking capacity supplied in amperes must be converted to kA (2.4956ms)",
+      "✖ AUD-11: matching must account for the minimum order multiple (0.206ms)"
+    ]
+  },
+  "frontendAudit": {
+    "command": "EKT_RUN_AUDIT=1 npm --prefix frontend test -- src/audit.test.tsx",
+    "passed": 0,
+    "failed": 3,
+    "failures": [
+      "   × audit regressions (expected failures on e373a32) > AUD-13: malformed successful cart JSON must be rejected before rendering 34ms",
+      "     → promise resolved \"{ items: null, totalPriceKzt: +0, …(1) }\" instead of rejecting",
+      "   × audit regressions (expected failures on e373a32) > AUD-14: blocked sessionStorage must allow an in-memory session 6ms",
+      "     → promise rejected \"DOMException{ stack: 'SecurityError:…', …(1) }\" instead of resolving",
+      "   × audit regressions (expected failures on e373a32) > AUD-15: an AI_UNAVAILABLE response must provide a visible retry action 4768ms",
+      "     → Unable to find an accessible element with the role \"button\" and name \"Повторить\""
+    ]
+  },
+  "build": {
+    "command": "npm run build",
+    "passed": true,
+    "bundleGzipKB": 90.2,
+    "cssGzipKB": 5
+  }
+}

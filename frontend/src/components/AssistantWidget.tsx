@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, CheckCircle, CircleNotch, Package, Sparkle, WarningCircle, X } from '@phosphor-icons/react'
-import { addToCart, searchCatalog } from '../lib/api'
+import { addToCart, pendingConfirmationId, searchCatalog } from '../lib/api'
 import { money } from '../lib/format'
 import { safeLink } from '../lib/links'
 import { backendSearchQuery, translations } from '../i18n'
@@ -11,7 +11,7 @@ import { ErrorText, uiError } from './ErrorText'
 import type { UiError } from './ErrorText'
 
 type Selection = { product: Product; quantity: number; confirmationId: string }
-type Message = { role: 'user' | 'assistant'; text: string; language: Language; sourceUrl?: string }
+type Message = { role: 'user' | 'assistant'; text: string; language: Language; sourceUrl?: string; retryable?: boolean }
 
 export function AssistantWidget({ updateCart, language, onLanguageChange }: {
   updateCart: (cart: Cart) => void
@@ -34,7 +34,6 @@ export function AssistantWidget({ updateCart, language, onLanguageChange }: {
   const [confirmError, setConfirmError] = useState<UiError | null>(null)
   const [confirmAttempted, setConfirmAttempted] = useState(false)
   const confirmationInFlight = useRef(false)
-  const retryConfirmations = useRef<Record<string, string>>({})
   const widgetRef = useRef<HTMLElement>(null)
   const launcherRef = useRef<HTMLButtonElement>(null)
   const firstLanguageRef = useRef<HTMLButtonElement>(null)
@@ -140,14 +139,21 @@ export function AssistantWidget({ updateCart, language, onLanguageChange }: {
     const messageLanguage = language ?? 'ru'
     searchPending.current = true
     setQuery(''); setSubmittedQuery(message); setError(null); setResult(null); setLoading(true)
-    setMessages((previous) => previous.at(-1)?.role === 'user' && previous.at(-1)?.text === message
-      ? previous : [...previous.slice(-39), { role: 'user', text: message, language: messageLanguage }])
+    setMessages((previous) => {
+      const retained = previous.at(-1)?.retryable && previous.at(-2)?.role === 'user' && previous.at(-2)?.text === message
+        ? previous.slice(0, -1) : previous
+      return retained.at(-1)?.role === 'user' && retained.at(-1)?.text === message
+        ? retained : [...retained.slice(-39), { role: 'user', text: message, language: messageLanguage }]
+    })
     try {
       const next = await searchCatalog(backendSearchQuery(message, language))
       setResult(next)
+      const retryable = next.notice !== undefined && next.notice !== 'AI_OFFLINE'
+      if (retryable) setError({ key: 'requestFailed' })
       setMessages((previous) => [...previous.slice(-39), {
         role: 'assistant', text: next.message, sourceUrl: next.sourceUrl,
         language: next.answerKind === 'conversation' ? messageLanguage : 'ru',
+        retryable,
       }])
     } catch (caught) {
       setError(uiError(caught))
@@ -160,7 +166,7 @@ export function AssistantWidget({ updateCart, language, onLanguageChange }: {
   const choose = (product: Product, trigger: HTMLButtonElement) => {
     if (!result || confirmationInFlight.current) return
     const quantity = result.quantity
-    const retryId = retryConfirmations.current[JSON.stringify([product.sku, quantity])]
+    const retryId = pendingConfirmationId(product.sku, quantity)
     setConfirmError(null)
     setConfirmAttempted(Boolean(retryId))
     returnFocusRef.current = trigger
@@ -197,12 +203,9 @@ export function AssistantWidget({ updateCart, language, onLanguageChange }: {
     setConfirmLoading(true)
     setConfirmAttempted(true)
     setConfirmError(null)
-    const retryKey = JSON.stringify([selected.product.sku, selected.quantity])
-    retryConfirmations.current = { ...retryConfirmations.current, [retryKey]: selected.confirmationId }
     try {
       const cart = await addToCart(selected.product.sku, selected.quantity, selected.confirmationId)
       updateCart(cart)
-      delete retryConfirmations.current[retryKey]
       setSelected(null)
     } catch (caught) {
       setConfirmError(uiError(caught))

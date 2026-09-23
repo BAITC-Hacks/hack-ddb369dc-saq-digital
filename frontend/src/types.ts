@@ -24,6 +24,7 @@ export type SearchResult = {
   message: string
   answerKind: 'product' | 'alternatives' | 'purchase-terms' | 'conversation'
   sourceUrl?: string
+  notice?: ApiSearchResult['notice']
 }
 
 export type ApiProduct = {
@@ -50,7 +51,7 @@ export type ApiSearchResult = {
   exactMatch: { product: ApiProduct; canFulfill: boolean } | null
   alternatives: { product: ApiProduct; reason: string }[]
   sourceUrl?: string
-  notice?: 'AI_OFFLINE' | 'AI_UNAVAILABLE' | 'AI_CALL_LIMIT'
+  notice?: 'AI_OFFLINE' | 'AI_UNAVAILABLE' | 'AI_CALL_LIMIT' | 'AI_RATE_LIMIT'
 }
 
 export type Cart = {

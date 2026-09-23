@@ -1,0 +1,163 @@
+{
+  "revision": "ead5cea71b396b7d9adcafac069d6d855880e788",
+  "date": "2026-09-23T11:58:47.536Z",
+  "scope": "Isolated server; no OpenAI or partner requests",
+  "controls": [
+    "1000 session requests created 30 sessions and safely rate-limited 970",
+    "400 concurrent-batch searches did not change the cart",
+    "32 concurrent identical confirmations added exactly one unit",
+    "Independent session cart remained empty",
+    "20 concurrent distinct cart writes respected stock=12",
+    "14 malformed bodies rejected; missing confirmation, unknown session and endpoint also rejected",
+    "20000 allocations under a 64 MiB old-space limit retained 1000 sessions without exhaustion"
+  ],
+  "sessionLoad": {
+    "count": 1000,
+    "concurrency": 32,
+    "statuses": {
+      "201": 30,
+      "429": 970
+    },
+    "p50Ms": 16,
+    "p95Ms": 38
+  },
+  "searchLoad": {
+    "count": 400,
+    "concurrency": 16,
+    "statuses": {
+      "200": 400
+    },
+    "p50Ms": 6,
+    "p95Ms": 9
+  },
+  "anonymousCors": "*",
+  "memory": {
+    "oldSpaceLimitMiB": 64,
+    "timeoutMs": 15000,
+    "exitCode": 0,
+    "killed": false,
+    "exhausted": false,
+    "samples": [
+      {
+        "attempts": 1000,
+        "sessions": 1000,
+        "rejected": 0,
+        "heapMiB": 22
+      },
+      {
+        "attempts": 2000,
+        "sessions": 1000,
+        "rejected": 1000,
+        "heapMiB": 25
+      },
+      {
+        "attempts": 3000,
+        "sessions": 1000,
+        "rejected": 2000,
+        "heapMiB": 22
+      },
+      {
+        "attempts": 4000,
+        "sessions": 1000,
+        "rejected": 3000,
+        "heapMiB": 20
+      },
+      {
+        "attempts": 5000,
+        "sessions": 1000,
+        "rejected": 4000,
+        "heapMiB": 25
+      },
+      {
+        "attempts": 6000,
+        "sessions": 1000,
+        "rejected": 5000,
+        "heapMiB": 22
+      },
+      {
+        "attempts": 7000,
+        "sessions": 1000,
+        "rejected": 6000,
+        "heapMiB": 20
+      },
+      {
+        "attempts": 8000,
+        "sessions": 1000,
+        "rejected": 7000,
+        "heapMiB": 17
+      },
+      {
+        "attempts": 9000,
+        "sessions": 1000,
+        "rejected": 8000,
+        "heapMiB": 23
+      },
+      {
+        "attempts": 10000,
+        "sessions": 1000,
+        "rejected": 9000,
+        "heapMiB": 20
+      },
+      {
+        "attempts": 11000,
+        "sessions": 1000,
+        "rejected": 10000,
+        "heapMiB": 18
+      },
+      {
+        "attempts": 12000,
+        "sessions": 1000,
+        "rejected": 11000,
+        "heapMiB": 23
+      },
+      {
+        "attempts": 13000,
+        "sessions": 1000,
+        "rejected": 12000,
+        "heapMiB": 20
+      },
+      {
+        "attempts": 14000,
+        "sessions": 1000,
+        "rejected": 13000,
+        "heapMiB": 18
+      },
+      {
+        "attempts": 15000,
+        "sessions": 1000,
+        "rejected": 14000,
+        "heapMiB": 23
+      },
+      {
+        "attempts": 16000,
+        "sessions": 1000,
+        "rejected": 15000,
+        "heapMiB": 21
+      },
+      {
+        "attempts": 17000,
+        "sessions": 1000,
+        "rejected": 16000,
+        "heapMiB": 18
+      },
+      {
+        "attempts": 18000,
+        "sessions": 1000,
+        "rejected": 17000,
+        "heapMiB": 23
+      },
+      {
+        "attempts": 19000,
+        "sessions": 1000,
+        "rejected": 18000,
+        "heapMiB": 21
+      },
+      {
+        "attempts": 20000,
+        "sessions": 1000,
+        "rejected": 19000,
+        "heapMiB": 18
+      }
+    ]
+  }
+}
