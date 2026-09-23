@@ -1,0 +1,101 @@
+import configuration from '../../config.json'
+import type { ApiProduct, ApiSearchResult, Cart, Product, SearchResult } from '../types'
+
+const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? configuration.apiBaseUrl).replace(/\/$/, '')
+let sessionId: string | undefined
+let sessionRequest: Promise<string> | undefined
+
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly code: string) {
+    super(message)
+  }
+}
+
+async function request<T>(path: string, body?: unknown, session?: string): Promise<T> {
+  const response = await fetch(`${baseUrl}${path}`, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: { 'Content-Type': 'application/json', ...(session && { 'X-Session-Id': session }) },
+    ...(body !== undefined && { body: JSON.stringify(body) }),
+  })
+  const payload = await response.json()
+  if (!response.ok) throw new ApiError(payload.error?.message ?? 'Не удалось выполнить запрос.', response.status, payload.error?.code ?? 'REQUEST_FAILED')
+  return payload as T
+}
+
+function getSession(): Promise<string> {
+  sessionId ??= window.sessionStorage.getItem(configuration.sessionStorageKey) ?? undefined
+  if (sessionId) return Promise.resolve(sessionId)
+  sessionRequest ??= request<{ sessionId: string }>('/session', {})
+    .then((result) => {
+      sessionId = result.sessionId
+      window.sessionStorage.setItem(configuration.sessionStorageKey, sessionId)
+      return sessionId
+    })
+    .finally(() => { sessionRequest = undefined })
+  return sessionRequest
+}
+
+async function sessionRequestFor<T>(path: string, body?: unknown): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    const currentSession = await getSession()
+    try {
+      return await request<T>(path, body, currentSession)
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 401 || attempt > 0) throw error
+      // A restarted server rejects the old session before it can mutate the cart.
+      if (sessionId === currentSession) {
+        sessionId = undefined
+        window.sessionStorage.removeItem(configuration.sessionStorageKey)
+      }
+    }
+  }
+}
+
+function displayProduct(product: ApiProduct, isExactMatch: boolean, recommendation: string): Product {
+  return {
+    id: product.sku,
+    sku: product.sku,
+    name: product.name,
+    poles: product.poles == null ? undefined : `${product.poles}P`,
+    curve: product.curve ?? undefined,
+    amperage: product.amps ?? undefined,
+    breakingCapacity: product.breakingCapacityKa == null ? undefined : `${product.breakingCapacityKa} kA`,
+    price: product.priceKzt,
+    stock: product.stock,
+    isExactMatch,
+    recommendation,
+    certificateUrl: product.certificates?.[0]?.url,
+    minimumOrderQuantity: product.minimumOrderQuantity,
+  }
+}
+
+export async function searchCatalog(query: string): Promise<SearchResult> {
+  const result = await sessionRequestFor<ApiSearchResult>('/search', { query })
+  const quantity = result.quantity ?? result.filters?.quantity ?? (result.intent === 'purchase_terms' ? 0 : 1)
+  const products: Product[] = []
+  if (result.exactMatch) {
+    const { product, canFulfill } = result.exactMatch
+    products.push(displayProduct(product, true, canFulfill
+      ? 'Товар есть в запрошенном количестве.'
+      : `На складе ${product.stock} шт., запрошено ${quantity} шт.`))
+  }
+  products.push(...result.alternatives.map(({ product, reason }) => displayProduct(product, false, reason)))
+  return {
+    quantity,
+    products,
+    message: result.answer,
+    answerKind: result.intent === 'purchase_terms' ? 'purchase-terms' : result.alternatives.length ? 'alternatives' : 'product',
+    interpretedQuery: result.filters
+      ? `${result.filters.poles}P · ${result.filters.curve}${result.filters.amps} · ${result.filters.breakingCapacityKa} kA · ${quantity} шт.`
+      : '',
+    sourceUrl: result.sourceUrl,
+  }
+}
+
+export function getCart(): Promise<Cart> {
+  return sessionRequestFor<Cart>('/cart')
+}
+
+export function addToCart(sku: string, quantity: number, confirmationId: string): Promise<Cart> {
+  return sessionRequestFor<Cart>('/cart', { sku, quantity, confirmed: true, confirmationId })
+}

@@ -1,10 +1,123 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-afterEach(cleanup)
+import { startBackend } from './test/backend'
 
-describe('EKT embedded assistant', () => {
-  it('appears as a chat widget over the EKT storefront context', () => { render(<App />); expect(screen.getByRole('dialog', { name: 'Чат с помощником EKT' })).toBeInTheDocument(); expect(screen.getByRole('heading', { name: 'Каталог продукции' })).toBeInTheDocument() })
-  it('blocks unavailable goods and requires confirmation before adding an alternative', async () => { render(<App />); fireEvent.click(screen.getByRole('button', { name: 'Demo' })); const choices = await screen.findAllByRole('button', { name: /Выбрать|Недоступно/ }); expect(choices[0]).toBeDisabled(); fireEvent.click(choices[1]); expect(screen.getByRole('dialog', { name: 'Добавить товар в корзину?' })).toBeInTheDocument(); expect(screen.getByRole('link', { name: /Корзина 0/ })).toBeInTheDocument(); fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' })); expect(screen.getByText('Товар добавлен в корзину.')).toBeInTheDocument(); expect(screen.getByRole('link', { name: 'Перейти к оформлению' })).toHaveAttribute('href', 'https://ekt.kz/personal/cart/') })
-  it('answers purchase-terms questions in the chat', async () => { render(<App />); fireEvent.change(screen.getByLabelText('Сообщение помощнику EKT'), { target: { value: 'Какие условия доставки и оплаты?' } }); fireEvent.click(screen.getByRole('button', { name: 'Отправить' })); expect(await screen.findByText(/доступен самовывоз/i)).toBeInTheDocument() })
+const nativeFetch = globalThis.fetch
+let backend: Awaited<ReturnType<typeof startBackend>>
+let transport: ReturnType<typeof vi.fn<typeof fetch>>
+
+beforeEach(async () => {
+  backend = await startBackend()
+  window.history.replaceState({}, '', '/')
+  window.sessionStorage.clear()
+  transport = vi.fn<typeof fetch>((input, options) => nativeFetch(new URL(String(input), backend.url), options))
+  vi.stubGlobal('fetch', transport)
+})
+
+afterEach(async () => {
+  cleanup()
+  vi.unstubAllGlobals()
+  await backend?.close()
+})
+
+const cartWrites = () => transport.mock.calls.filter(([url, options]) => String(url).endsWith('/cart') && options?.method === 'POST')
+
+async function search(query?: string) {
+  if (query) {
+    fireEvent.change(screen.getByLabelText('Сообщение помощнику EKT'), { target: { value: query } })
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+  } else fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled())
+}
+
+describe('integrated EKT assistant', () => {
+  it('loads the storefront and a backend session without writing to the cart', async () => {
+    render(<App />)
+    expect(screen.getByRole('dialog', { name: 'Чат с помощником EKT' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Каталог продукции' })).toBeInTheDocument()
+    await waitFor(() => expect(transport.mock.calls.some(([url]) => String(url).endsWith('/cart'))).toBe(true))
+    expect(cartWrites()).toHaveLength(0)
+  })
+
+  it('uses team data and only writes after confirmation, then restores the cart page', async () => {
+    const view = render(<App />)
+    await search()
+    expect(await screen.findByText('DEMO-MCB-001')).toBeInTheDocument()
+    expect(screen.getByText('DEMO-MCB-003')).toBeInTheDocument()
+    expect(screen.getByText('DEMO-MCB-004')).toBeInTheDocument()
+    expect(screen.queryByText('DEMO-MCB-005')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Недоступно/ })).toBeDisabled()
+    fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
+    expect(cartWrites()).toHaveLength(0)
+    expect(screen.getByRole('link', { name: /Корзина 0/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Отмена' }))
+    expect(cartWrites()).toHaveLength(0)
+    fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить и добавить' }))
+    expect(await screen.findByText('Товар добавлен в корзину.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Перейти в корзину' })).toHaveAttribute('href', '/cart')
+    expect(cartWrites()).toHaveLength(1)
+    view.unmount()
+    window.history.replaceState({}, '', '/cart')
+    render(<App />)
+    expect(await screen.findByText('DEMO-MCB-003')).toBeInTheDocument()
+    expect(screen.getByText('8 шт.')).toBeInTheDocument()
+    expect(screen.getAllByText(/63\s*200/)).toHaveLength(2)
+    expect(screen.getByRole('heading', { name: 'Корзина' })).toBeInTheDocument()
+  })
+
+  it('reuses the confirmation ID after a lost response and does not add twice', async () => {
+    render(<App />)
+    await search()
+    await screen.findByText('DEMO-MCB-003')
+    let lost = false
+    transport.mockImplementation(async (input, options) => {
+      const response = await nativeFetch(new URL(String(input), backend.url), options)
+      if (String(input).endsWith('/cart') && options?.method === 'POST' && !lost) {
+        lost = true
+        throw new TypeError('Response lost after server accepted confirmation')
+      }
+      return response
+    })
+    fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить и добавить' }))
+    expect(await screen.findByText(/Не удалось получить подтверждение/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Корзина 0/ })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить и добавить' }))
+    expect(await screen.findByText('Товар добавлен в корзину.')).toBeInTheDocument()
+    const writes = cartWrites().map(([, options]) => JSON.parse(String(options?.body)))
+    expect(writes).toHaveLength(2)
+    expect(writes[1]).toEqual(writes[0])
+    const cartRequest = cartWrites()[1][1]
+    const snapshot = await nativeFetch(`${backend.url}/api/cart`, { headers: cartRequest?.headers }).then((response) => response.json())
+    expect(snapshot.items[0].quantity).toBe(8)
+    expect(snapshot.totalPriceKzt).toBe(63200)
+  })
+
+  it('keeps the existing cart and shows stock errors on another confirmation', async () => {
+    render(<App />)
+    await search()
+    await screen.findByText('DEMO-MCB-003')
+    fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить и добавить' }))
+    await screen.findByText('Товар добавлен в корзину.')
+    fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить и добавить' }))
+    const dialog = screen.getByRole('dialog', { name: 'Добавить товар в корзину?' })
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent('превышает доступный остаток')
+    expect(screen.getByRole('link', { name: /Корзина 1/ })).toBeInTheDocument()
+  })
+
+  it('answers purchase terms with a source and handles empty or incomplete searches', async () => {
+    render(<App />)
+    await search('Какие условия доставки и оплаты?')
+    expect(await screen.findByRole('link', { name: 'Источник условий' })).toHaveAttribute('href', 'https://ekt.kz/about/information/')
+    expect(screen.getByText(/Физические лица могут оплатить/)).toBeInTheDocument()
+    await search('4P D63, 15 kA, 1 штука')
+    expect(await screen.findByText(/Нет подходящих позиций/)).toBeInTheDocument()
+    await search('автомат')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Укажите полюса')
+    expect(cartWrites()).toHaveLength(0)
+  })
 })
