@@ -124,7 +124,7 @@ export async function getCart(): Promise<Cart> {
   return { ...cart, cartUrl: frontendCartUrl(cart.cartUrl) }
 }
 
-export async function addToCart(sku: string, quantity: number, confirmationId: string): Promise<Cart> {
-  const cart = await sessionRequestFor<Cart>('/cart', { sku, quantity, confirmed: true, confirmationId })
+export async function addToCart(sku: string, quantity: number, confirmationId: string, expectedUnitPriceKzt?: number): Promise<Cart> {
+  const cart = await sessionRequestFor<Cart>('/cart', { sku, quantity, confirmed: true, confirmationId, ...(expectedUnitPriceKzt !== undefined && { expectedUnitPriceKzt }) })
   return { ...cart, cartUrl: frontendCartUrl(cart.cartUrl) }
 }

@@ -6,6 +6,8 @@ export class Cart {
     this.catalog = new Map();
     this.items = new Map();
     this.confirmations = new Map();
+    this.quotes = new Map();
+    this.pending = Promise.resolve();
   }
 
   snapshot() {
@@ -16,7 +18,13 @@ export class Cart {
     return { items, totalPriceKzt: items.reduce((total, item) => total + item.lineTotalKzt, 0) };
   }
 
-  add({ sku, quantity, confirmed, confirmationId }) {
+  rememberQuote(product) {
+    this.quotes.delete(product.sku);
+    this.quotes.set(product.sku, product.priceKzt);
+    if (this.quotes.size > 200) this.quotes.delete(this.quotes.keys().next().value);
+  }
+
+  validateRequest({ quantity, confirmed, confirmationId }) {
     if (confirmed !== true) {
       throw new ApiError(400, 'CONFIRMATION_REQUIRED', 'Товар добавляется только после явного подтверждения.');
     }
@@ -26,6 +34,31 @@ export class Cart {
     if (!Number.isSafeInteger(quantity) || quantity <= 0) {
       throw new ApiError(400, 'INVALID_QUANTITY', 'Количество должно быть положительным целым числом.');
     }
+  }
+
+  addVerified(input, verifyProduct) {
+    // Serialize confirmation attempts so retries cannot race against stock/price checks.
+    const operation = this.pending.then(async () => {
+      this.validateRequest(input);
+      if (this.confirmations.has(input.confirmationId)) return this.add(input);
+      const product = this.catalogSource.find((item) => item.sku === input.sku);
+      if (!product) throw new ApiError(404, 'SKU_NOT_FOUND', 'Товар не найден в каталоге.');
+      const expectedPrice = input.expectedUnitPriceKzt ?? this.quotes.get(input.sku) ?? product.priceKzt;
+      const fresh = await verifyProduct(product);
+      if (fresh.sku !== input.sku || fresh.id !== product.id) {
+        throw new ApiError(409, 'PRODUCT_CHANGED', 'Карточка товара изменилась. Повторите поиск и выбор товара.');
+      }
+      if (fresh.priceKzt !== expectedPrice) {
+        throw new ApiError(409, 'PRODUCT_PRICE_CHANGED', `Цена товара изменилась: сейчас ${fresh.priceKzt} ₸. Повторите поиск по артикулу ${fresh.sku} и подтвердите новую цену. Корзина не изменена.`);
+      }
+      return this.add(input, fresh);
+    });
+    this.pending = operation.catch(() => {});
+    return operation;
+  }
+
+  add({ sku, quantity, confirmed, confirmationId }, verifiedProduct) {
+    this.validateRequest({ quantity, confirmed, confirmationId });
     const previous = this.confirmations.get(confirmationId);
     if (previous) {
       if (previous.sku !== sku || previous.quantity !== quantity) {
@@ -34,7 +67,7 @@ export class Cart {
       return this.snapshot();
     }
 
-    const product = this.catalogSource.find((item) => item.sku === sku);
+    const product = verifiedProduct ?? this.catalogSource.find((item) => item.sku === sku);
     if (!product) {
       throw new ApiError(404, 'SKU_NOT_FOUND', 'Товар не найден в каталоге.');
     }

@@ -42,6 +42,10 @@ const queryParser = process.env.APP_MODE === 'live' && process.env.OPENAI_API_KE
     apiKey: process.env.OPENAI_API_KEY,
     maxOutputTokens: configuration.openai.maxOutputTokens,
     maxCalls: configuration.openai.maxCalls,
+    windowMs: configuration.openai.windowMs,
+    maxConcurrent: configuration.openai.maxConcurrent,
+    cacheTtlMs: configuration.openai.cacheTtlMs,
+    maxCacheEntries: configuration.openai.maxCacheEntries,
     timeoutMs: configuration.openai.timeoutMs,
   })
   : undefined;
@@ -52,7 +56,7 @@ try {
   if (error.code !== 'ENOENT') throw error;
   staticDirectory = undefined;
 }
-createApp(catalog, { cartUrl: process.env.CART_URL || configuration.cartUrl, purchaseTerms, queryParser, uploads: configuration.uploads, staticDirectory, catalogState }).listen(port, () => console.log(`EKT assistant is listening on port ${port}${staticDirectory ? ' (API + frontend)' : ' (API)'}`));
+createApp(catalog, { cartUrl: process.env.CART_URL || configuration.cartUrl, purchaseTerms, queryParser, uploads: configuration.uploads, partnerClient: client, staticDirectory, catalogState }).listen(port, () => console.log(`EKT assistant is listening on port ${port}${staticDirectory ? ' (API + frontend)' : ' (API)'}`));
 
 if (usePartner) {
   const scheduleRefresh = (delayMs) => setTimeout(() => void updateCatalog(), delayMs).unref();

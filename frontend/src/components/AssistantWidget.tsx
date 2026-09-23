@@ -200,7 +200,7 @@ export function AssistantWidget({ updateCart, language, onLanguageChange }: {
     const retryKey = JSON.stringify([selected.product.sku, selected.quantity])
     retryConfirmations.current = { ...retryConfirmations.current, [retryKey]: selected.confirmationId }
     try {
-      const cart = await addToCart(selected.product.sku, selected.quantity, selected.confirmationId)
+      const cart = await addToCart(selected.product.sku, selected.quantity, selected.confirmationId, selected.product.price)
       updateCart(cart)
       delete retryConfirmations.current[retryKey]
       setSelected(null)
