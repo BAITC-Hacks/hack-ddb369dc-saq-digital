@@ -1,15 +1,16 @@
 name: ekt-match
 
 services:
-  app:
-    image: ${APP_IMAGE:-ekt-match:local}
+  backend:
+    image: ${BACKEND_IMAGE:-${APP_IMAGE:-ekt-match-backend:local}}
     build:
       context: .
       dockerfile: deploy/Dockerfile
+      target: backend
     init: true
     restart: unless-stopped
-    ports:
-      - "${APP_PORT:-8080}:${PORT:-3001}"
+    expose:
+      - "${PORT:-3001}"
     environment:
       NODE_ENV: production
       PORT: ${PORT:-3001}
@@ -21,5 +22,20 @@ services:
       EKT_API_PASSWORD: ${EKT_API_PASSWORD:-}
       EKT_PRODUCT_DETAIL_URL: ${EKT_PRODUCT_DETAIL_URL:-}
       CATALOG_PATH: ${CATALOG_PATH:-}
-      FRONTEND_DIST_PATH: ${FRONTEND_DIST_PATH:-}
       CART_URL: ${CART_URL:-}
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-ekt-match-frontend:local}
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: frontend
+    init: true
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      BACKEND_ORIGIN: ${BACKEND_ORIGIN:-http://backend:${PORT:-3001}}

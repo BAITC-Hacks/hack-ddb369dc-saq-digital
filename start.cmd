@@ -1,7 +1,7 @@
 @echo off
 setlocal
 pushd "%~dp0"
-docker compose up --build --wait
+docker compose up --build --wait --remove-orphans
 if errorlevel 1 (
   echo.
   echo Startup failed. Check that Docker Desktop is running and the configured port is available.
