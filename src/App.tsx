@@ -25,7 +25,7 @@ function Suggestion({ product, quantity, exact, reason, choose }: {
   quantity: number
   exact: boolean
   reason?: string
-  choose: (product: ApiProduct, quantity: number) => void
+  choose: (product: ApiProduct, quantity: number, trigger: HTMLButtonElement) => void
 }) {
   const available = product.stock >= quantity && (!product.minimumOrderQuantity || quantity % product.minimumOrderQuantity === 0)
   const specifications = [
@@ -55,7 +55,7 @@ function Suggestion({ product, quantity, exact, reason, choose }: {
     })}</div>
     <footer>
       <strong>{money.format(product.priceKzt)}</strong>
-      <button type="button" disabled={!available} onClick={() => choose(product, quantity)}>
+      <button type="button" disabled={!available} onClick={(event) => choose(product, quantity, event.currentTarget)}>
         {available ? 'Выбрать' : 'Недоступно'} <ArrowRight size={15} weight="bold" />
       </button>
     </footer>
@@ -76,6 +76,66 @@ function Widget({ onCartChanged, connectionError }: { onCartChanged: (cart: Cart
   const [confirmError, setConfirmError] = useState('')
   const [confirmAttempted, setConfirmAttempted] = useState(false)
   const confirmationInFlight = useRef(false)
+  const launcherRef = useRef<HTMLButtonElement>(null)
+  const messageRef = useRef<HTMLTextAreaElement>(null)
+  const confirmationRef = useRef<HTMLElement>(null)
+  const confirmButtonRef = useRef<HTMLButtonElement>(null)
+  const returnFocusRef = useRef<HTMLButtonElement | null>(null)
+  const restoreLauncherFocus = useRef(false)
+  const openedFromLauncher = useRef(false)
+  const canDismissConfirmation = !confirmLoading && (!confirmAttempted || Boolean(confirmError))
+
+  useEffect(() => {
+    if (open && openedFromLauncher.current) {
+      messageRef.current?.focus()
+      openedFromLauncher.current = false
+    } else if (!open && restoreLauncherFocus.current) {
+      launcherRef.current?.focus()
+      restoreLauncherFocus.current = false
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (selected) confirmButtonRef.current?.focus()
+    else returnFocusRef.current?.focus()
+  }, [selected])
+
+  useEffect(() => {
+    if (!selected || !confirmAttempted) return
+    if (confirmLoading) confirmationRef.current?.focus()
+    else confirmButtonRef.current?.focus()
+  }, [selected, confirmAttempted, confirmLoading])
+
+  const closeChat = () => {
+    restoreLauncherFocus.current = true
+    setOpen(false)
+  }
+
+  const openChat = () => {
+    openedFromLauncher.current = true
+    setOpen(true)
+  }
+
+  const closeConfirmation = () => {
+    setSelected(null)
+  }
+
+  useEffect(() => {
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (selected) {
+        if (canDismissConfirmation) {
+          event.preventDefault()
+          closeConfirmation()
+        }
+      } else if (open) {
+        event.preventDefault()
+        closeChat()
+      }
+    }
+    window.addEventListener('keydown', onEscape)
+    return () => window.removeEventListener('keydown', onEscape)
+  }, [open, selected, canDismissConfirmation])
 
   const submit = async (value = query) => {
     const message = value.trim()
@@ -97,10 +157,30 @@ function Widget({ onCartChanged, connectionError }: { onCartChanged: (cart: Cart
     }
   }
 
-  const choose = (product: ApiProduct, quantity: number) => {
+  const choose = (product: ApiProduct, quantity: number, trigger: HTMLButtonElement) => {
     setConfirmError('')
     setConfirmAttempted(false)
+    returnFocusRef.current = trigger
     setSelected({ product, quantity, confirmationId: crypto.randomUUID() })
+  }
+
+  const keepConfirmationFocus = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab') return
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+    const first = buttons[0]
+    const last = buttons.at(-1)
+    if (!first || !last) {
+      event.preventDefault()
+      confirmationRef.current?.focus()
+      return
+    }
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
   }
 
   const confirm = async () => {
@@ -126,8 +206,8 @@ function Widget({ onCartChanged, connectionError }: { onCartChanged: (cart: Cart
   const sourceHref = safeLink(result?.sourceUrl)
 
   return <>
-    {open && <aside className="widget" aria-label="Чат с помощником EKT" role="dialog" aria-modal="false">
-      <header><div className="agent"><span><Sparkle size={17} weight="fill" /></span><div><strong>Помощник EKT</strong><small>Каталог и условия покупки</small></div></div><button className="icon" type="button" aria-label="Свернуть чат" onClick={() => setOpen(false)}><X size={19} /></button></header>
+    {open && <aside className="widget" aria-labelledby="ekt-chat-title" role="dialog" aria-modal="false">
+      <header><div className="agent"><span aria-hidden="true"><Sparkle size={17} weight="regular" /></span><div><strong id="ekt-chat-title">Помощник EKT</strong><small>Каталог и условия покупки</small></div></div><button className="icon" type="button" aria-label="Свернуть чат" onClick={closeChat}><X size={19} /></button></header>
       <section className="messages" aria-live="polite">
         <div className="message assistant"><small>Помощник EKT</small><p>Здравствуйте! Подберу товар по артикулу или характеристикам, проверю остатки и объясню аналоги. Могу ответить про доставку и оплату.</p></div>
         {connectionError && <p className="error" role="alert">{connectionError}</p>}
@@ -138,22 +218,22 @@ function Widget({ onCartChanged, connectionError }: { onCartChanged: (cart: Cart
           {result.alternatives.map(({ product, reason }) => <Suggestion key={product.sku} product={product} quantity={quantity} exact={false} reason={reason} choose={choose} />)}
           {!result.exactMatch && result.alternatives.length === 0 && result.intent !== 'purchase_terms' && <div className="empty-result"><Package size={23} /> Уточните артикул или характеристики товара.</div>}
         </>}
-        {loading && <div className="loading"><CircleNotch className="spin" size={17} /> Ищу по каталогу</div>}
+        {loading && <div className="loading" role="status"><CircleNotch className="spin" size={17} /> Ищу по каталогу</div>}
       </section>
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void submit() }}>
-        <textarea aria-label="Сообщение помощнику EKT" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Например: нужен автомат 3P C16, 10 kA, 8 штук" rows={2} />
+        <textarea ref={messageRef} aria-label="Сообщение помощнику EKT" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Например: нужен автомат 3P C16, 10 kA, 8 штук" rows={2} />
         {error && <p className="error" role="alert"><WarningCircle size={15} weight="fill" /> {error}</p>}
         <div><button className="demo" type="button" disabled={loading} onClick={() => void submit(demoQuery)}>Demo</button><button className="send" type="submit" disabled={loading}>{loading ? <CircleNotch className="spin" size={17} /> : 'Отправить'}</button></div>
       </form>
     </aside>}
-    {!open && <button className="fab" type="button" onClick={() => setOpen(true)}><Sparkle size={19} weight="fill" /> Спросить помощника</button>}
-    {selected && <div className="shade" role="presentation"><section className="confirm" role="dialog" aria-modal="true" aria-label="Добавить товар в корзину?">
-      {!confirmAttempted && <button className="icon close" type="button" aria-label="Закрыть подтверждение" onClick={() => setSelected(null)}><X size={19} /></button>}
-      <span className="confirm-icon"><CheckCircle size={28} weight="fill" /></span><p className="eyebrow">Явное подтверждение</p><h2>Добавить товар в корзину?</h2>
+    {!open && <button ref={launcherRef} className="fab" type="button" aria-label="Открыть чат с помощником EKT" onClick={openChat}><Sparkle size={19} weight="regular" aria-hidden="true" /> Спросить помощника</button>}
+    {selected && <div className="shade" role="presentation"><section ref={confirmationRef} className="confirm" role="dialog" aria-modal="true" aria-busy={confirmLoading} aria-labelledby="ekt-confirm-title" tabIndex={-1} onKeyDown={keepConfirmationFocus}>
+      {canDismissConfirmation && <button className="icon close" type="button" aria-label="Закрыть подтверждение" onClick={closeConfirmation}><X size={19} /></button>}
+      <span className="confirm-icon"><CheckCircle size={28} weight="fill" /></span><p className="eyebrow">Явное подтверждение</p><h2 id="ekt-confirm-title">Добавить товар в корзину?</h2>
       <p>{selected.product.name}<br /><small>{selected.product.sku}</small></p>
       <div className="total"><span>Количество <b>{selected.quantity} шт.</b></span><span>Итого <b>{money.format(selected.product.priceKzt * selected.quantity)}</b></span></div>
       {confirmError && <p className="confirm-error" role="alert">{confirmError} Повторная попытка использует то же подтверждение.</p>}
-      <footer>{!confirmAttempted && <button className="cancel" type="button" onClick={() => setSelected(null)}>Отмена</button>}<button className="yes" type="button" disabled={confirmLoading} onClick={() => void confirm()}>{confirmLoading ? 'Добавляю…' : confirmAttempted ? 'Повторить' : 'Да, добавить'}</button></footer>
+      <footer>{canDismissConfirmation && <button className="cancel" type="button" onClick={closeConfirmation}>Отмена</button>}<button ref={confirmButtonRef} className="yes" type="button" disabled={confirmLoading} onClick={() => void confirm()}>{confirmLoading ? 'Добавляю…' : confirmAttempted ? 'Повторить' : 'Да, добавить'}</button></footer>
     </section></div>}
   </>
 }

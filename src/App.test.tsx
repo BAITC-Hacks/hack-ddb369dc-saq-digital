@@ -40,6 +40,35 @@ afterEach(() => {
 })
 
 describe('EKT assistant integration', () => {
+  it('keeps the launcher and chat operable with Escape and restores focus', () => {
+    render(<App />)
+    const chat = screen.getByRole('dialog', { name: 'Помощник EKT' })
+    expect(chat).toBeInTheDocument()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    const launcher = screen.getByRole('button', { name: 'Открыть чат с помощником EKT' })
+    expect(launcher).toHaveFocus()
+    expect(chat).not.toBeInTheDocument()
+    fireEvent.click(launcher)
+    expect(screen.getByRole('dialog', { name: 'Помощник EKT' })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: 'Сообщение помощнику EKT' })).toHaveFocus()
+  })
+
+  it('keeps confirmation keyboard focus inside the modal and allows Escape before submitting', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    const choose = await screen.findByRole('button', { name: /Выбрать/ })
+    fireEvent.click(choose)
+    const modal = screen.getByRole('dialog', { name: 'Добавить товар в корзину?' })
+    expect(modal).toHaveAttribute('aria-modal', 'true')
+    expect(screen.getByRole('button', { name: 'Да, добавить' })).toHaveFocus()
+    fireEvent.keyDown(modal, { key: 'Tab' })
+    expect(screen.getByRole('button', { name: 'Закрыть подтверждение' })).toHaveFocus()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(modal).not.toBeInTheDocument()
+    expect(choose).toHaveFocus()
+    expect(addToCart).not.toHaveBeenCalled()
+  })
+
   it('loads the session cart and searches without modifying it', async () => {
     render(<App />)
     expect(await screen.findByRole('link', { name: /Корзина 0/ })).toHaveAttribute('href', '/cart')
@@ -72,9 +101,25 @@ describe('EKT assistant integration', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Выбрать/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' }))
     expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Повторить' })).toHaveFocus()
     fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
     expect(await screen.findByRole('heading', { name: 'Корзина' })).toBeInTheDocument()
     expect(vi.mocked(addToCart).mock.calls[1][2]).toBe(vi.mocked(addToCart).mock.calls[0][2])
+  })
+
+  it('allows leaving a failed confirmation without another cart request', async () => {
+    vi.mocked(addToCart).mockRejectedValue(new Error('connection lost'))
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    const choose = await screen.findByRole('button', { name: /Выбрать/ })
+    fireEvent.click(choose)
+    fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Повторить' })).toHaveFocus()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Добавить товар в корзину?' })).not.toBeInTheDocument()
+    expect(choose).toHaveFocus()
+    expect(addToCart).toHaveBeenCalledTimes(1)
   })
 
   it('renders the server cart at the route returned by cartUrl', async () => {
