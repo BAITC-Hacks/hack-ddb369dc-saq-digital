@@ -78,6 +78,23 @@ function conversationalAnswer(answer, extra = {}) {
   return { intent: 'conversation', answer, filters: null, exactMatch: null, alternatives: [], ...extra };
 }
 
+export function answerWithoutCatalog(query, terms, loading) {
+  if (query.length > 4000) throw new ApiError(400, 'QUERY_TOO_LONG', 'Сократите сообщение до 4000 символов.');
+  const termsText = termsAnswer(query, terms);
+  if (termsText) {
+    return { intent: 'purchase_terms', answer: termsText, sourceUrl: terms.sourceUrl, filters: null, exactMatch: null, alternatives: [] };
+  }
+  const greeting = /^(?:здравствуй(?:те)?|привет|добрый\s+(?:день|вечер)|доброе\s+утро)[!.,\s]*$/iu.test(query.trim())
+    ? 'Здравствуйте! Я помощник EKT. '
+    : '';
+  const status = loading
+    ? 'Каталог ekt.kz загружается в первый раз. Поиск товаров, цены и остатки станут доступны после загрузки.'
+    : 'Каталог ekt.kz сейчас недоступен. Пока не могу проверить товары, цены и остатки.';
+  return conversationalAnswer(`${greeting}${status} Уже могу рассказать об оплате, доставке и условиях покупки.`, {
+    notice: loading ? 'CATALOG_LOADING' : 'CATALOG_UNAVAILABLE',
+  });
+}
+
 function remember(context, query, result, retainHistory = true) {
   if (retainHistory) {
     context.history = [...(context.history ?? []),

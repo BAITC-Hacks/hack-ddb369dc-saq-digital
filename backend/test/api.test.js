@@ -31,28 +31,96 @@ async function getCart(base, sessionId) {
   return (await fetch(`${base}/api/cart`, { headers: { 'X-Session-Id': sessionId } })).json();
 }
 
-test('partner import exposes progress, blocks data operations, then publishes a complete catalog to new sessions', async () => {
+test('partner import allows sessions and cart reads, then publishes products to the same session', async () => {
   const imported = [];
   const catalogState = { status: 'loading', source: 'partner', products: 0 };
   await withServer(async (base) => {
     const health = await (await fetch(`${base}/api/health`)).json();
     assert.equal(health.status, 'ok');
     assert.equal(health.catalog.status, 'loading');
-    for (const path of ['/api/session', '/api/search', '/api/cart']) {
+    const { status, body: { sessionId } } = await post(base, '/api/session', {});
+    assert.equal(status, 201);
+    assert.ok(sessionId);
+    assert.deepEqual(await getCart(base, sessionId), { items: [], totalPriceKzt: 0 });
+    for (const path of ['/api/search', '/api/cart', '/api/uploads']) {
       const blocked = await post(base, path, { query: 'EXACT' });
       assert.equal(blocked.status, 503);
       assert.equal(blocked.body.error.code, 'CATALOG_LOADING');
     }
     imported.push(...catalog);
     Object.assign(catalogState, { status: 'ready', products: imported.length });
-    const { body: { sessionId } } = await post(base, '/api/session', {});
-    assert.ok(sessionId);
     const found = await post(base, '/api/search', { query: 'SKU-EXACT' }, sessionId);
     assert.equal(found.status, 200);
     assert.equal(found.body.exactMatch.product.sku, 'EXACT');
     const added = await post(base, '/api/cart', { sku: 'EXACT', quantity: 1, confirmed: true, confirmationId: 'import-ready' }, sessionId);
     assert.equal(added.body.items[0].quantity, 1);
   }, { catalogState }, imported);
+});
+
+test('cold-start conversation and purchase terms work without AI or product claims', async () => {
+  for (const status of ['loading', 'failed']) {
+    const options = {
+      catalogState: { status, source: 'partner', products: 0 },
+      purchaseTerms: { payment: 'Оплата по счёту.', delivery: 'Доставка курьером.', minimumOrder: 'Кратность указана в карточке.', sourceUrl: 'https://example.org/terms' },
+      queryParser: {
+        reply: () => assert.fail('An unavailable catalog must not be sent to AI'),
+        extract: () => assert.fail('An unavailable catalog must not be sent to AI'),
+      },
+    };
+    await withServer(async (base) => {
+      const { body: { sessionId } } = await post(base, '/api/session', {});
+      for (const query of ['Здравствуйте', 'Есть SKU-EXACT?', '3P C16, 10 kA, 8 штук']) {
+        const result = await post(base, '/api/search', { query, conversation: true }, sessionId);
+        assert.equal(result.status, 200);
+        assert.equal(result.body.intent, 'conversation');
+        assert.equal(result.body.notice, status === 'loading' ? 'CATALOG_LOADING' : 'CATALOG_UNAVAILABLE');
+        assert.equal(result.body.exactMatch, null);
+        assert.deepEqual(result.body.alternatives, []);
+        assert.doesNotMatch(result.body.answer, /0 товаров|не найден/);
+        if (query === 'Здравствуйте') assert.match(result.body.answer, /Здравствуйте/);
+      }
+      for (const conversation of [false, true]) {
+        const terms = await post(base, '/api/search', { query: 'Как оплатить и заказать доставку?', conversation }, sessionId);
+        assert.equal(terms.status, 200);
+        assert.equal(terms.body.intent, 'purchase_terms');
+        assert.match(terms.body.answer, /Оплата по счёту\. Доставка курьером\./);
+        assert.equal(terms.body.sourceUrl, options.purchaseTerms.sourceUrl);
+      }
+      const excessive = await post(base, '/api/search', { query: 'a'.repeat(4001), conversation: true }, sessionId);
+      assert.equal(excessive.status, 400);
+      assert.equal(excessive.body.error.code, 'QUERY_TOO_LONG');
+      assert.deepEqual(await getCart(base, sessionId), { items: [], totalPriceKzt: 0 });
+    }, options, []);
+  }
+});
+
+test('catalog revisions invalidate repeated conversation results without appending duplicate cache notes', async () => {
+  const products = catalog.map((product) => ({ ...product }));
+  const catalogState = {
+    status: 'ready', source: 'partner', products: products.length,
+    loadedAt: '2026-09-22T12:00:00.000Z', cached: true, refreshing: true, stale: true,
+  };
+  await withServer(async (base) => {
+    const { body: { sessionId } } = await post(base, '/api/session', {});
+    const query = { query: 'SKU-EXACT', conversation: true };
+    const first = await post(base, '/api/search', query, sessionId);
+    const retry = await post(base, '/api/search', query, sessionId);
+    assert.deepEqual(retry.body, first.body);
+    assert.equal(first.body.catalog.loadedAt, catalogState.loadedAt);
+    assert.equal(first.body.catalog.refreshing, true);
+    assert.equal(first.body.answer.split('Данные каталога сохранены').length, 2);
+    const oldProduct = first.body.exactMatch.product;
+    products.splice(0, products.length, ...products.map((product) => product.sku === 'EXACT'
+      ? { ...product, priceKzt: product.priceKzt + 100, stock: product.stock + 10 }
+      : product));
+    Object.assign(catalogState, { loadedAt: '2026-09-23T12:00:00.000Z', cached: false, refreshing: false, stale: false });
+    const fresh = await post(base, '/api/search', query, sessionId);
+    assert.equal(fresh.body.exactMatch.product.priceKzt, oldProduct.priceKzt + 100);
+    assert.equal(fresh.body.exactMatch.product.stock, oldProduct.stock + 10);
+    assert.equal(fresh.body.catalog.loadedAt, catalogState.loadedAt);
+    assert.doesNotMatch(fresh.body.answer, /Данные каталога сохранены/);
+    assert.deepEqual(await getCart(base, sessionId), { items: [], totalPriceKzt: 0 });
+  }, { catalogState }, products);
 });
 
 test('a failed live import returns an explicit unavailable error instead of demo products', async () => {
