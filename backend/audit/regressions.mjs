@@ -162,11 +162,13 @@ test('AUD-09: late older replies must not overwrite newer conversation state', a
   const pending = new Map();
   const parser = { reply: (query) => new Promise((resolve) => pending.set(query, resolve)) };
   const context = {};
-  const first = answerConversation(catalog, 'Первая заявка', terms, context, parser);
-  const second = answerConversation(catalog, 'Вторая заявка', terms, context, parser);
-  pending.get('Вторая заявка')({ kind: 'search', answer: '', filters: { ...unknown, poles: 1, amps: 25 } });
+  const firstQuery = 'Первая заявка: 3P C16';
+  const secondQuery = 'Вторая заявка: 1P C25';
+  const first = answerConversation(catalog, firstQuery, terms, context, parser);
+  const second = answerConversation(catalog, secondQuery, terms, context, parser);
+  pending.get(secondQuery)({ kind: 'search', answer: '', filters: { ...unknown, poles: 1, curve: 'C', amps: 25 } });
   await second;
-  pending.get('Первая заявка')({ kind: 'search', answer: '', filters: { ...unknown, poles: 3, amps: 16 } });
+  pending.get(firstQuery)({ kind: 'search', answer: '', filters: { ...unknown, poles: 3, curve: 'C', amps: 16 } });
   await first;
   assert.equal(context.pendingFilters.amps, 25);
 });

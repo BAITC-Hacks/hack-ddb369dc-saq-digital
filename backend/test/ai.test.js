@@ -159,7 +159,7 @@ test('dialogue sends site facts and bounded session history, with a context-awar
     calls += 1;
     const body = JSON.parse(options.body);
     assert.equal(body.text.format.name, 'site_assistant');
-    assert.deepEqual(body.text.format.schema.required, ['kind', 'answer', 'filters']);
+    assert.deepEqual(body.text.format.schema.required, ['kind', 'answer', 'filters', 'topic', 'productSkus', 'termSections', 'technicalTopic']);
     assert.equal(body.input[0].role, 'developer');
     assert.match(body.input[0].content, /LOCAL/);
     assert.equal(body.input[1].content, 'Нужен автомат');
@@ -186,5 +186,109 @@ test('dialogue accepts partial parameters but rejects invalid actions and invent
     const parser = new OpenAIQueryParser({ ...settings, fetcher: async () => response(completed(JSON.stringify(payload))) });
     if (payload.filters.quantity === null) assert.deepEqual((await parser.reply('нужен автомат', {})).filters, partial);
     else await assert.rejects(parser.reply('нужен автомат', {}));
+  }
+});
+
+test('provider budget recovers at the window boundary and lifetime telemetry stays cumulative', async () => {
+  let now = 0;
+  let requests = 0;
+  const parser = new OpenAIQueryParser({
+    ...settings, maxCalls: 2, budgetWindowMs: 1000, now: () => now,
+    fetcher: async () => { requests++; return response(completed()); },
+  });
+  await parser.extract('first');
+  await parser.extract('second');
+  assert.throws(() => parser.extract('third'), { code: 'AI_CALL_LIMIT' });
+  now = 999;
+  assert.throws(() => parser.extract('third'), { code: 'AI_CALL_LIMIT' });
+  now = 1000;
+  assert.deepEqual(await parser.extract('third'), filters);
+  assert.equal(requests, 3);
+  assert.equal(parser.calls, 3);
+  assert.equal(parser.windowCalls, 1);
+});
+
+test('expired cached responses refresh while valid cache hits spend no client or provider quota', async () => {
+  let now = 0;
+  let requests = 0;
+  let charges = 0;
+  const parser = new OpenAIQueryParser({
+    ...settings, budgetWindowMs: 1000, now: () => now,
+    fetcher: async () => { requests++; return response(completed()); },
+  });
+  const policy = { beforeRequest: () => { charges++; } };
+  await parser.extract('cached', policy);
+  now = 999;
+  await parser.extract('cached', policy);
+  assert.equal(requests, 1);
+  assert.equal(charges, 1);
+  now = 1000;
+  await parser.extract('cached', policy);
+  assert.equal(requests, 2);
+  assert.equal(charges, 2);
+  assert.equal(parser.cache.size, 1);
+});
+
+test('completed cache entries remain bounded and evicted responses can be fetched again', async () => {
+  let requests = 0;
+  const parser = new OpenAIQueryParser({
+    ...settings, maxCalls: 10, maxCacheEntries: 2,
+    fetcher: async () => { requests++; return response(completed()); },
+  });
+  await parser.extract('first');
+  await parser.extract('second');
+  await parser.extract('third');
+  assert.equal(parser.cache.size, 2);
+  await parser.extract('second');
+  assert.equal(requests, 3, 'A retained answer remains available without a provider call');
+  await parser.extract('first');
+  assert.equal(requests, 4);
+  assert.equal(parser.cache.size, 2);
+});
+
+test('in-flight responses stay deduplicated across windows and cache capacity rejects extra provider work', async () => {
+  let now = 0;
+  let release;
+  let requests = 0;
+  let charges = 0;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const parser = new OpenAIQueryParser({
+    ...settings, maxCalls: 10, maxCacheEntries: 1, budgetWindowMs: 1000, now: () => now,
+    fetcher: async () => { requests++; await gate; return response(completed()); },
+  });
+  const policy = { beforeRequest: () => { charges++; } };
+  const first = parser.extract('pending', policy);
+  now = 1000;
+  assert.equal(parser.extract('pending', policy), first);
+  assert.throws(() => parser.extract('other', policy), { code: 'AI_RATE_LIMIT' });
+  assert.equal(requests, 1);
+  assert.equal(charges, 1);
+  release();
+  await first;
+  assert.deepEqual(await parser.extract('other', policy), filters);
+  assert.equal(requests, 2);
+  assert.equal(charges, 2);
+  assert.equal(parser.cache.size, 1);
+});
+
+test('a denied request policy preserves cached answers and spends no provider budget', async () => {
+  let requests = 0;
+  const parser = new OpenAIQueryParser({
+    ...settings, maxCalls: 10, maxCacheEntries: 1,
+    fetcher: async () => { requests++; return response(completed()); },
+  });
+  await parser.extract('retained');
+  const denied = { beforeRequest: () => { throw Object.assign(new Error('Client limit'), { code: 'AI_RATE_LIMIT' }); } };
+  assert.throws(() => parser.extract('denied', denied), { code: 'AI_RATE_LIMIT' });
+  assert.equal(parser.calls, 1);
+  assert.equal(parser.windowCalls, 1);
+  assert.equal(parser.cache.size, 1);
+  assert.deepEqual(await parser.extract('retained', denied), filters);
+  assert.equal(requests, 1, 'Denied traffic must not evict a previously cached answer');
+});
+
+test('invalid resource settings fail before any provider request', () => {
+  for (const options of [{ maxCalls: -1 }, { maxCalls: 1.5 }, { budgetWindowMs: 0 }, { maxCacheEntries: 0 }, { timeoutMs: -1 }, { maxOutputTokens: 0 }]) {
+    assert.throws(() => new OpenAIQueryParser({ ...settings, ...options }), /safe integer/);
   }
 });

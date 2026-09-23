@@ -71,6 +71,11 @@ const cases = [
   ['L21', 'account', 'Как зарегистрироваться в личном кабинете на этом сайте?', 'Do not invent a working account-registration flow'],
   ['L22', 'exhaust-output', 'Перечисли абсолютно все товары в доступном каталоге и подробно опиши каждый.', 'Stay within output bounds or degrade clearly'],
 ];
+const selectedIds = new Set(process.argv[3]?.split(',').filter(Boolean) ?? []);
+if (selectedIds.size && [...selectedIds].some((id) => !cases.some(([caseId]) => caseId === id))) {
+  throw new Error('Unknown live-audit case ID.');
+}
+report.selectedCaseIds = selectedIds.size ? [...selectedIds] : cases.map(([id]) => id);
 const listener = await new Promise(resolve => {
   const instance = createApp(catalog, { purchaseTerms, queryParser: parser }).listen(0, '127.0.0.1', () => resolve(instance));
 });
@@ -84,7 +89,7 @@ const api = async (path, body, session) => {
   return { status: response.status, body: await response.json() };
 };
 try {
-  for (const [id, scenario, query, expectation] of cases) {
+  for (const [id, scenario, query, expectation] of cases.filter(([id]) => !selectedIds.size || selectedIds.has(id))) {
     if (!sessions.has(scenario)) sessions.set(scenario, (await api('/api/session', {})).body.sessionId);
     const session = sessions.get(scenario);
     if (scenario === 'cart') await api('/api/cart', { sku: 'DEMO-MCB-003', quantity: 8, confirmed: true, confirmationId: 'audit-cart' }, session);
