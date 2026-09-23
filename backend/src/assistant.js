@@ -269,7 +269,7 @@ function conversationCatalog(catalog, query, context) {
   return ranked.sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 20).map(({ product }) => product);
 }
 
-async function processConversation(catalog, query, terms, context, queryParser) {
+async function processConversation(catalog, query, terms, context, queryParser, catalogStatus) {
   if (query.length > 4000) throw new ApiError(400, 'QUERY_TOO_LONG', 'Сократите сообщение до 4000 символов.');
   assertNoPaymentData(query);
   sanitizeConversation(context);
@@ -294,7 +294,12 @@ async function processConversation(catalog, query, terms, context, queryParser) 
   const anotherSelection = /аналог|замен|друг(?:ое|ой|ую|ие|ого)|похож/iu.test(query);
   if (context.lastConversation?.query === query.trim() && !anotherSelection) return context.lastConversation.result;
   let clarification;
-  try {
+  const unavailable = catalogStatus === 'loading' || catalogStatus === 'failed';
+  if (unavailable) {
+    const local = answerWithoutCatalog(query, terms, catalogStatus === 'loading');
+    if (local.intent === 'purchase_terms') return remember(context, query, local);
+    clarification = local.answer;
+  } else try {
     // A pending selection must not be interpreted as a question about the previous SKU.
     const explicitKind = queryKind(query);
     const localContext = context.pendingFilters && (!explicitKind || explicitKind === 'breaker') ? undefined : context;
@@ -323,6 +328,7 @@ async function processConversation(catalog, query, terms, context, queryParser) 
       const reply = await queryParser.reply(query, {
         site: `EKT Match — помощник магазина электротехники. ${catalog.length && catalog.every((product) => product.id) ? 'Данные товаров загружены из API ekt.kz при запуске сервера.' : 'Используется локальный каталог.'} Можно искать товары и добавлять их в локальную корзину после кнопки подтверждения. Реальных заказов, оплаты, личного кабинета и резервирования склада в прототипе нет. Цены в тенге. Передан только фрагмент каталога: отсутствие товара в этом фрагменте не означает его отсутствие в магазине. Категории витрины без товаров в переданных данных не подтверждают их наличие.`,
         catalogSize: catalog.length,
+        catalogStatus: catalogStatus ?? 'ready',
         catalog: conversationCatalog(catalog, query, context).map(({ sku, name, brand, poles, curve, amps, breakingCapacityKa, priceKzt, stock, certificates }) =>
           ({ sku, name, brand, poles, curve, amps, breakingCapacityKa, priceKzt, stock, certificates })),
         purchaseTerms: terms ?? null,
@@ -336,6 +342,7 @@ async function processConversation(catalog, query, terms, context, queryParser) 
         return remember(context, query, conversationalAnswer('Я помогаю с товарами и возможностями этого сайта: ассортиментом, характеристиками, наличием, ценами, корзиной, оплатой и доставкой. Какой вопрос по магазину вас интересует?'), false);
       }
       if (reply.kind === 'search') {
+        if (unavailable) return remember(context, query, answerWithoutCatalog(query, terms, catalogStatus === 'loading'));
         if (kind !== 'breaker') {
           context.pendingFilters = null;
           return remember(context, query, conversationalAnswer(categoryClarification(kind)));
@@ -356,6 +363,12 @@ async function processConversation(catalog, query, terms, context, queryParser) 
         return remember(context, query, conversationalAnswer(`Для подбора осталось уточнить: ${missing.join(', ')}. Напишите недостающие параметры, остальные я запомнил.`));
       }
       if (!reply.answer?.trim()) throw new Error('Empty assistant answer');
+      if (unavailable && !['cart', 'purchase_terms', 'technical', 'selection_guidance', 'account', 'capabilities'].includes(reply.topic)) {
+        return remember(context, query, answerWithoutCatalog(query, terms, catalogStatus === 'loading'));
+      }
+      if (unavailable && reply.topic === 'capabilities') {
+        return remember(context, query, conversationalAnswer('Здравствуйте! Я помощник EKT. Могу объяснить характеристики товаров и условия оплаты или доставки. Проверка цен и наличия станет доступна после восстановления каталога.'));
+      }
       return remember(context, query, conversationalAnswer(safeModelAnswer(catalog, query, terms, context, reply)));
     } catch (error) {
       // Never log the key, user input, provider response body, or entire error object.
@@ -369,22 +382,23 @@ async function processConversation(catalog, query, terms, context, queryParser) 
     }
   }
 
+  if (unavailable) return remember(context, query, answerWithoutCatalog(query, terms, catalogStatus === 'loading'));
   const modeMessage = catalog.length && catalog.every((product) => product.id)
     ? 'AI-диалог сейчас отключён.'
     : 'Сейчас включён локальный режим.';
   return remember(context, query, conversationalAnswer(`${modeMessage} В доступном каталоге ${catalog.length} товаров. Могу проверить артикул, подобрать автомат по характеристикам и показать условия оплаты или доставки. ${clarification}`, { notice: 'AI_OFFLINE' }));
 }
 
-export function answerConversation(catalog, query, terms, context = {}, queryParser) {
+export function answerConversation(catalog, query, terms, context = {}, queryParser, catalogStatus) {
   // A duplicate request shares its pending work. Other replies update the session
   // only when they are still its newest request.
   const state = inFlight.get(context) ?? { sequence: 0, requests: new Map() };
   inFlight.set(context, state);
-  const key = JSON.stringify([query.trim(), context.cart ?? null]);
+  const key = JSON.stringify([query.trim(), context.cart ?? null, catalogStatus ?? 'ready']);
   if (state.requests.has(key)) return state.requests.get(key);
   const sequence = ++state.sequence;
   const working = { ...context, history: context.history ? [...context.history] : undefined };
-  const promise = processConversation(catalog, query, terms, working, queryParser).then((result) => {
+  const promise = processConversation(catalog, query, terms, working, queryParser, catalogStatus).then((result) => {
     if (sequence === state.sequence) {
       const latestCart = context.cart;
       Object.assign(context, working);

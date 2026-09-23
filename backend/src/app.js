@@ -128,6 +128,7 @@ export function createApp(catalog, options = {}) {
     const queryParser = parserFor(request, sessionId);
     const state = options.catalogState && { ...options.catalogState };
     if (state && state.status !== 'ready') {
+      if (conversation) return response.json(await answerConversation([], query, options.purchaseTerms, context, queryParser, state.status));
       const result = answerWithoutCatalog(query, options.purchaseTerms, state.status === 'loading');
       if (conversation || result.intent === 'purchase_terms') return response.json(result);
       return requireCatalog(request, response, () => {});

@@ -62,10 +62,6 @@ test('cold-start conversation and purchase terms work without AI or product clai
     const options = {
       catalogState: { status, source: 'partner', products: 0 },
       purchaseTerms: { payment: 'Оплата по счёту.', delivery: 'Доставка курьером.', minimumOrder: 'Кратность указана в карточке.', sourceUrl: 'https://example.org/terms' },
-      queryParser: {
-        reply: () => assert.fail('An unavailable catalog must not be sent to AI'),
-        extract: () => assert.fail('An unavailable catalog must not be sent to AI'),
-      },
     };
     await withServer(async (base) => {
       const { body: { sessionId } } = await post(base, '/api/session', {});
@@ -88,10 +84,36 @@ test('cold-start conversation and purchase terms work without AI or product clai
       }
       const excessive = await post(base, '/api/search', { query: 'a'.repeat(4001), conversation: true }, sessionId);
       assert.equal(excessive.status, 400);
-      assert.equal(excessive.body.error.code, 'QUERY_TOO_LONG');
+      assert.equal(excessive.body.error.code, 'INVALID_BODY');
       assert.deepEqual(await getCart(base, sessionId), { items: [], totalPriceKzt: 0 });
     }, options, []);
   }
+});
+
+test('catalog outage keeps AI conversation available without inventing inventory', async () => {
+  let topic = 'capabilities';
+  const catalogState = { status: 'failed', source: 'partner', products: 0 };
+  const queryParser = { reply: async (_query, facts) => {
+    assert.equal(facts.catalogStatus, 'failed');
+    assert.deepEqual(facts.catalog, []);
+    return { kind: topic === 'out_of_scope' ? 'out_of_scope' : 'answer', topic, answer: 'Invented stock: 900 units.', filters: {} };
+  } };
+  await withServer(async (base) => {
+    const { body: { sessionId } } = await post(base, '/api/session', {});
+    const greeting = await post(base, '/api/search', { query: 'Как ты можешь помочь?', conversation: true }, sessionId);
+    assert.equal(greeting.status, 200);
+    assert.match(greeting.body.answer, /Я помощник EKT/);
+    topic = 'overview';
+    const inventory = await post(base, '/api/search', { query: 'че там по товарам', conversation: true }, sessionId);
+    assert.equal(inventory.body.notice, 'CATALOG_UNAVAILABLE');
+    assert.doesNotMatch(inventory.body.answer, /900/);
+    topic = 'out_of_scope';
+    const unrelated = await post(base, '/api/search', { query: 'Расскажи про политику', conversation: true }, sessionId);
+    assert.match(unrelated.body.answer, /возможностями этого сайта/);
+    const cart = await post(base, '/api/search', { query: 'Что в моей корзине?', conversation: true }, sessionId);
+    assert.match(cart.body.answer, /нет товаров/);
+    assert.deepEqual(await getCart(base, sessionId), { items: [], totalPriceKzt: 0 });
+  }, { catalogState, queryParser }, []);
 });
 
 test('catalog revisions invalidate repeated conversation results without appending duplicate cache notes', async () => {
