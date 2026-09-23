@@ -117,7 +117,8 @@ describe('integrated EKT assistant', () => {
     await search('4P D63, 15 kA, 1 штука')
     expect(await screen.findByText(/Нет подходящих позиций/)).toBeInTheDocument()
     await search('автомат')
-    expect(await screen.findByRole('alert')).toHaveTextContent('Укажите полюса')
+    expect(await screen.findByText(/Сейчас включён локальный режим/)).toHaveTextContent('Укажите полюса')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(cartWrites()).toHaveLength(0)
   })
 
@@ -158,5 +159,46 @@ describe('integrated EKT assistant', () => {
     render(<App />)
     expect(await screen.findByRole('heading', { name: 'Корзина' })).toBeInTheDocument()
     expect(screen.getByText('8 шт.')).toBeInTheDocument()
+  })
+
+  it('answers free-form questions in the chat, preserves history, and accepts Enter', async () => {
+    await backend.close()
+    const reply = vi.fn(async () => ({
+      kind: 'answer', answer: 'В каталоге представлены автоматические выключатели.',
+      filters: { poles: null, curve: null, amps: null, breakingCapacityKa: null, quantity: null },
+    }))
+    backend = await startBackend({ queryParser: { reply } })
+    render(<App />)
+    await search('что по товарам есть')
+    expect(await screen.findByText('В каталоге представлены автоматические выключатели.')).toBeInTheDocument()
+    expect(screen.queryByText(/Нет подходящих позиций/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    const input = screen.getByLabelText('Сообщение помощнику EKT')
+    expect(input).toHaveValue('')
+    fireEvent.change(input, { target: { value: 'Какие условия доставки?' } })
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
+    expect(await screen.findByRole('link', { name: 'Источник условий' })).toBeInTheDocument()
+    expect(screen.getByText('что по товарам есть')).toBeInTheDocument()
+    expect(screen.getByText('В каталоге представлены автоматические выключатели.')).toBeInTheDocument()
+    expect(reply).toHaveBeenCalledTimes(1)
+    expect(cartWrites()).toHaveLength(0)
+  })
+
+  it('keeps a failed question visible and retries without duplicating it', async () => {
+    render(<App />)
+    await waitFor(() => expect(transport.mock.calls.some(([url]) => String(url).endsWith('/cart'))).toBe(true))
+    let unavailable = true
+    transport.mockImplementation((input, options) => String(input).endsWith('/search') && unavailable
+      ? Promise.resolve(new Response(JSON.stringify({ error: { code: 'BACKEND_UNAVAILABLE', message: 'Сервер временно недоступен. Повторите запрос.' } }), { status: 503, headers: { 'Content-Type': 'application/json' } }))
+      : nativeFetch(new URL(String(input), backend.url), options))
+    await search('что по товарам есть')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Сервер временно недоступен')
+    expect(screen.getByText('что по товарам есть')).toBeInTheDocument()
+    unavailable = false
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
+    expect(await screen.findByText(/Сейчас включён локальный режим/)).toBeInTheDocument()
+    expect(screen.getAllByText('что по товарам есть')).toHaveLength(1)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(cartWrites()).toHaveLength(0)
   })
 })

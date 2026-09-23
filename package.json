@@ -9,6 +9,9 @@
     "build": "npm --prefix frontend run build",
     "start": "node --env-file-if-exists=.env backend/src/index.js",
     "preview": "npm start",
-    "test": "npm --prefix backend test && npm --prefix frontend test"
+    "test": "npm --prefix backend test && npm --prefix frontend test",
+    "docker:up": "docker compose up --build --wait --remove-orphans",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f frontend backend"
   }
 }

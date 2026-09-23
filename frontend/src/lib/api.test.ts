@@ -71,3 +71,31 @@ it('accepts both API origins and full API prefixes without duplicating api in th
     expect(transport.mock.calls.some(([url]) => String(url).includes('/api/api/'))).toBe(false)
   }
 })
+
+it('opts into conversation responses and does not convert them into empty product searches', async () => {
+  const api = await import('./api')
+  const result = await api.searchCatalog('что по товарам есть')
+  expect(result.answerKind).toBe('conversation')
+  expect(result.products).toEqual([])
+  const [, options] = transport.mock.calls.find(([url]) => String(url).endsWith('/search'))!
+  expect(JSON.parse(String(options?.body))).toEqual({ query: 'что по товарам есть', conversation: true })
+})
+
+it('aborts stalled requests and allows a later retry without automatic duplicate writes', async () => {
+  const api = await import('./api')
+  await api.getCart()
+  vi.useFakeTimers()
+  try {
+    transport.mockImplementation((_input, options) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+    }))
+    const pending = expect(api.searchCatalog('что есть')).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' })
+    await vi.advanceTimersByTimeAsync(configuration.requestTimeoutMs)
+    await pending
+  } finally {
+    vi.useRealTimers()
+  }
+  transport.mockImplementation((input, options) => nativeFetch(new URL(String(input), backend.url), options))
+  expect((await api.searchCatalog('1P C16, 4.5 kA, 2 штуки')).products[0].sku).toBe('DEMO-MCB-040')
+  expect((await api.getCart()).items).toEqual([])
+})

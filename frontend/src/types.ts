@@ -22,7 +22,7 @@ export type SearchResult = {
   quantity: number
   products: Product[]
   message: string
-  answerKind: 'product' | 'alternatives' | 'purchase-terms'
+  answerKind: 'product' | 'alternatives' | 'purchase-terms' | 'conversation'
   sourceUrl?: string
 }
 
@@ -43,13 +43,14 @@ export type ApiProduct = {
 }
 
 export type ApiSearchResult = {
-  intent: 'specifications' | 'product' | 'purchase_terms'
+  intent: 'specifications' | 'product' | 'purchase_terms' | 'conversation'
   answer: string
   quantity?: number
   filters: { poles: number; curve: 'B' | 'C' | 'D'; amps: number; breakingCapacityKa: number; quantity: number } | null
   exactMatch: { product: ApiProduct; canFulfill: boolean } | null
   alternatives: { product: ApiProduct; reason: string }[]
   sourceUrl?: string
+  notice?: 'AI_OFFLINE' | 'AI_UNAVAILABLE' | 'AI_CALL_LIMIT'
 }
 
 export type Cart = {

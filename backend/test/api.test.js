@@ -5,6 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/app.js';
+import { OpenAIQueryParser } from '../src/ai.js';
 import { loadCatalog } from '../src/catalog.js';
 import { fileURLToPath } from 'node:url';
 import { catalog } from './fixtures.js';
@@ -29,6 +30,21 @@ async function post(base, path, body, sessionId) {
 async function getCart(base, sessionId) {
   return (await fetch(`${base}/api/cart`, { headers: { 'X-Session-Id': sessionId } })).json();
 }
+
+test('health checks require no session, make no AI calls, and preserve cart state', async () => {
+  await withServer(async (base) => {
+    const { body: { sessionId } } = await post(base, '/api/session', {});
+    const { body: cart } = await post(base, '/api/cart', {
+      sku: 'EXACT', quantity: 1, confirmed: true, confirmationId: 'health-check',
+    }, sessionId);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch(`${base}/api/health`);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { status: 'ok' });
+    }
+    assert.deepEqual(await getCart(base, sessionId), cart);
+  }, { queryParser: { extract: () => assert.fail('Health checks must not call OpenAI') } });
+});
 
 test('search leaves cart untouched, confirmation adds once', async () => {
   await withServer(async (base) => {
@@ -106,6 +122,80 @@ test('cart response includes the configured frontend cart route', async () => {
     assert.equal(result.body.cartUrl, '/cart');
     assert.equal(result.body.items[0].quantity, 1);
   }, { cartUrl: '/cart' });
+});
+
+test('OpenAI extraction searches catalog data without mutating the cart', async () => {
+  let calls = 0;
+  const queryParser = new OpenAIQueryParser({
+    url: 'https://example.org/responses', model: 'demo', apiKey: 'dummy',
+    fetcher: async () => {
+      calls += 1;
+      return { ok: true, json: async () => ({
+        status: 'completed',
+        output: [{ type: 'message', role: 'assistant', content: [{
+          type: 'output_text', text: JSON.stringify({ poles: 3, curve: 'C', amps: 16, breakingCapacityKa: 10, quantity: 8 }),
+        }] }],
+      }) };
+    },
+  });
+  await withServer(async (base) => {
+    const { body: { sessionId } } = await post(base, '/api/session', {});
+    await post(base, '/api/search', { query: '3P C16, 10 kA, 8 штук' }, sessionId);
+    assert.equal(calls, 0, 'Local parsing must not spend an API call');
+    const result = await post(base, '/api/search', {
+      query: 'Восемь трёхполюсных автоматов, кривая C, шестнадцать ампер, десять килоампер',
+    }, sessionId);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.alternatives[0].product.sku, 'ALT-15');
+    assert.equal(result.body.filters.quantity, 8);
+    assert.equal(calls, 1);
+    assert.deepEqual(await getCart(base, sessionId), { items: [], totalPriceKzt: 0 });
+  }, { queryParser });
+});
+
+test('OpenAI outages preserve the local clarification response and existing cart', async () => {
+  const queryParser = new OpenAIQueryParser({
+    url: 'https://example.org/responses', model: 'demo', apiKey: 'dummy',
+    fetcher: async () => ({ ok: false, status: 503 }),
+  });
+  await withServer(async (base) => {
+    const { body: { sessionId } } = await post(base, '/api/session', {});
+    const { body: cart } = await post(base, '/api/cart', {
+      sku: 'EXACT', quantity: 1, confirmed: true, confirmationId: 'before-ai-failure',
+    }, sessionId);
+    const result = await post(base, '/api/search', { query: 'нужен автомат' }, sessionId);
+    assert.equal(result.status, 422);
+    assert.equal(result.body.error.code, 'MISSING_SPECIFICATIONS');
+    assert.deepEqual(await getCart(base, sessionId), cart);
+    const local = await post(base, '/api/search', { query: '3P C16, 10 kA, 8 штук' }, sessionId);
+    assert.equal(local.status, 200);
+    assert.equal(queryParser.calls, 1);
+  }, { queryParser });
+});
+
+test('conversation is opt-in, isolated by session, and cannot write to the cart', async () => {
+  const histories = [];
+  await withServer(async (base) => {
+    const { body: { sessionId: first } } = await post(base, '/api/session', {});
+    const { body: { sessionId: second } } = await post(base, '/api/session', {});
+    for (const [sessionId, query] of [[first, 'что по товарам есть'], [first, 'а подробнее'], [second, 'что по товарам есть']]) {
+      const result = await post(base, '/api/search', { query, conversation: true }, sessionId);
+      assert.equal(result.status, 200);
+      assert.equal(result.body.intent, 'conversation');
+      assert.match(result.body.answer, /каталог/);
+      assert.deepEqual((await getCart(base, sessionId)).items, []);
+    }
+    assert.deepEqual(histories, [0, 2, 0]);
+    const legacy = await post(base, '/api/search', { query: 'неполный запрос' });
+    assert.equal(legacy.status, 422);
+    assert.equal(legacy.body.error.code, 'MISSING_SPECIFICATIONS');
+  }, { queryParser: {
+    extract: async () => { throw new Error('Missing specifications'); },
+    reply: async (_query, context) => {
+      histories.push(context.history.length);
+      return { kind: 'answer', answer: 'Вот доступный каталог.', filters: { poles: null, curve: null, amps: null, breakingCapacityKa: null, quantity: null } };
+    },
+  } });
 });
 
 test('team catalog supports all ten demo queries in one session and confirmed checkout', async () => {

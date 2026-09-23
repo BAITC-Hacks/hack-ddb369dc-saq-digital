@@ -1,10 +1,10 @@
 import express from 'express';
 import { z } from 'zod';
 import { ApiError } from './errors.js';
-import { answerQuery } from './assistant.js';
+import { answerConversation, answerQuery } from './assistant.js';
 import { Sessions } from './sessions.js';
 
-const searchBody = z.strictObject({ query: z.string().min(1) });
+const searchBody = z.strictObject({ query: z.string().min(1), conversation: z.boolean().optional() });
 const cartBody = z.strictObject({
   sku: z.string().min(1),
   quantity: z.number().int().positive(),
@@ -32,10 +32,15 @@ export function createApp(catalog, options = {}) {
     next();
   });
 
+  app.get('/api/health', (_request, response) => response.json({ status: 'ok' }));
+
   app.post('/api/search', async (request, response) => {
-    const { query } = parseBody(searchBody, request.body);
+    const { query, conversation } = parseBody(searchBody, request.body);
     const sessionId = request.get('X-Session-Id');
     const context = sessionId ? sessions.context(sessionId) : undefined;
+    if (conversation) {
+      return response.json(await answerConversation(catalog, query, options.purchaseTerms, context, options.queryParser));
+    }
     try {
       response.json(answerQuery(catalog, query, options.purchaseTerms, context));
     } catch (error) {

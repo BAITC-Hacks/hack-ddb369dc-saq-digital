@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { CheckCircle, CircleNotch, Package, Sparkle, WarningCircle, X } from '@phosphor-icons/react'
 import configuration from '../../config.json'
 import { addToCart, ApiError, searchCatalog } from '../lib/api'
@@ -8,11 +8,13 @@ import type { Cart, Product, SearchResult } from '../types'
 import { ProductCard } from './ProductCard'
 
 type Selection = { product: Product; quantity: number; confirmationId: string }
+type Message = { role: 'user' | 'assistant'; text: string; sourceUrl?: string }
 
 export function AssistantWidget({ cartUrl, updateCart }: { cartUrl: string; updateCart: (cart: Cart) => void }) {
   const [open, setOpen] = useState(true)
   const [query, setQuery] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
+  const [messages, setMessages] = useState<Message[]>([])
   const [result, setResult] = useState<SearchResult | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -22,14 +24,25 @@ export function AssistantWidget({ cartUrl, updateCart }: { cartUrl: string; upda
   const [added, setAdded] = useState(false)
   const searchPending = useRef(false)
   const confirmationPending = useRef(false)
+  const messageList = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    if (messageList.current) messageList.current.scrollTop = messageList.current.scrollHeight
+  }, [messages, loading, result, error])
 
   const submit = async (value = query) => {
     if (searchPending.current) return
     const message = value.trim()
     if (!message) { setError('Укажите артикул, характеристики или вопрос об условиях покупки.'); return }
     searchPending.current = true
-    setQuery(message); setSubmittedQuery(message); setError(''); setResult(null); setLoading(true); setAdded(false)
-    try { setResult(await searchCatalog(message)) }
+    setQuery(''); setSubmittedQuery(message); setError(''); setResult(null); setLoading(true); setAdded(false)
+    setMessages((previous) => previous.at(-1)?.role === 'user' && previous.at(-1)?.text === message
+      ? previous : [...previous.slice(-39), { role: 'user', text: message }])
+    try {
+      const next = await searchCatalog(message)
+      setResult(next)
+      setMessages((previous) => [...previous.slice(-39), { role: 'assistant', text: next.message, sourceUrl: next.sourceUrl }])
+    }
     catch (cause) { setError(cause instanceof ApiError ? cause.message : 'Не удалось связаться с каталогом. Повторите запрос.') }
     finally { searchPending.current = false; setLoading(false) }
   }
@@ -52,29 +65,35 @@ export function AssistantWidget({ cartUrl, updateCart }: { cartUrl: string; upda
     } finally { confirmationPending.current = false; setConfirming(false) }
   }
 
-  const sourceHref = safeLink(result?.sourceUrl)
   return <>
     {open ? <aside className="widget" aria-label="Чат с помощником EKT" role="dialog" aria-modal="false">
       <header>
         <div className="agent"><span><Sparkle size={17} weight="fill" /></span><div><strong>Помощник EKT</strong><small>Демо · локальный каталог</small></div></div>
         <button className="icon" type="button" aria-label="Свернуть чат" onClick={() => setOpen(false)}><X size={19} /></button>
       </header>
-      <section className="messages" aria-live="polite">
-        <div className="message assistant"><small>Помощник EKT</small><p>Здравствуйте! Подберу товар по артикулу или характеристикам, проверю остатки и объясню аналоги. Могу ответить про доставку и оплату.</p></div>
+      <section className="messages" ref={messageList} role="log" aria-label="История диалога" aria-live="polite" aria-relevant="additions">
+        <div className="message assistant"><small>Помощник EKT</small><p>Здравствуйте! Расскажу об ассортименте, помогу с подбором и отвечу на вопросы о товарах, корзине, доставке и оплате. Что вас интересует?</p></div>
+        {messages.map((message, index) => {
+          const sourceHref = safeLink(message.sourceUrl)
+          return <div className={`message ${message.role === 'user' ? 'customer' : 'assistant'}`} key={index}>
+            <small>{message.role === 'user' ? 'Вы' : 'Помощник EKT'}</small><p>{message.text}</p>
+            {sourceHref && <a className="source-link" href={sourceHref} target="_blank" rel="noreferrer">Источник условий</a>}
+          </div>
+        })}
         {result && <>
-          <div className="message customer"><small>Вы</small><p>{submittedQuery}</p></div>
-          <div className="message assistant"><small>Помощник EKT</small><p>{result.message}</p>{sourceHref && <a className="source-link" href={sourceHref} target="_blank" rel="noreferrer">Источник условий</a>}</div>
           {result.interpretedQuery && <p className="interpreted-query">Распознано: {result.interpretedQuery}</p>}
           {result.products.length > 0 && <div className="suggestions">{result.products.map((product) => <ProductCard key={product.id} product={product} quantity={result.quantity} choose={choose} />)}</div>}
-          {result.products.length === 0 && result.answerKind !== 'purchase-terms' && <div className="empty-result"><Package size={26} weight="duotone" /> Нет подходящих позиций. Уточните характеристики или артикул.</div>}
+          {result.products.length === 0 && (result.answerKind === 'product' || result.answerKind === 'alternatives') && <div className="empty-result"><Package size={26} weight="duotone" /> Нет подходящих позиций. Уточните характеристики или артикул.</div>}
         </>}
         {added && <div className="cart-note" role="status"><CheckCircle size={19} weight="fill" /> Товар добавлен в корзину. <a href={cartUrl}>Перейти в корзину</a></div>}
-        {loading && <div className="loading" role="status"><CircleNotch className="spin" size={17} /> Ищу по каталогу</div>}
+        {loading && <div className="loading" role="status"><CircleNotch className="spin" size={17} /> Готовлю ответ</div>}
       </section>
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void submit() }}>
-        <textarea aria-label="Сообщение помощнику EKT" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Например: есть ли DEMO-MCB-003?" rows={2} />
+        <textarea aria-label="Сообщение помощнику EKT" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+          if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() }
+        }} placeholder="Что есть в каталоге?" maxLength={4000} rows={2} />
         {error && <p className="error" role="alert"><WarningCircle size={15} weight="fill" /> {error}</p>}
-        <div><button className="demo" type="button" disabled={loading} onClick={() => void submit(configuration.demoQuery)}>Demo</button><button className="send" type="submit" disabled={loading}>{loading ? <CircleNotch className="spin" size={17} /> : 'Отправить'}</button></div>
+        <div>{error && submittedQuery && <button className="demo" type="button" disabled={loading} onClick={() => void submit(submittedQuery)}>Повторить</button>}<button className="demo" type="button" disabled={loading} onClick={() => void submit(configuration.demoQuery)}>Demo</button><button className="send" type="submit" disabled={loading}>{loading ? <CircleNotch className="spin" size={17} /> : 'Отправить'}</button></div>
       </form>
     </aside> : <button className="fab" type="button" onClick={() => setOpen(true)}><Sparkle size={19} weight="fill" /> Спросить помощника</button>}
     {selected && <div className="shade" role="presentation"><section className="confirm" role="dialog" aria-modal="true" aria-label="Добавить товар в корзину?" onKeyDown={(event) => { if (event.key === 'Escape' && !confirming) setSelected(null) }}>
