@@ -31,24 +31,26 @@ function termsAnswer(query, terms) {
 
 export function answerQuery(catalog, query, terms, context, filtersOverride) {
   const termsText = termsAnswer(query, terms);
+  const specifiesProduct = /\b[1-4]\s*(?:[pр]|ф)(?=$|[^\p{L}])|(?<!\p{L})[BCDВСД]\s*\d/iu.test(query);
   const product = matchingProduct(catalog, query) ?? (
-    context?.lastSku && /налич|сертификат|цен|характеристик|сколько|описани|шт\.?|штук/i.test(query)
+    !specifiesProduct && context?.lastSku && /налич|сертификат|цен|характеристик|сколько|описани|шт\.?|штук/i.test(query)
       ? catalog.find((item) => item.sku === context.lastSku)
       : null
   );
   if (product) {
-    if (context) context.lastSku = product.sku;
     const quantityMatch = query.match(/(?:^|\D)(\d+)\s*(?:шт\.?|штук|штуки|штука|единиц)(?=$|[^\p{L}])/iu);
     const quantity = quantityMatch ? Number(quantityMatch[1]) : 1;
     if (!Number.isSafeInteger(quantity) || quantity <= 0) {
       throw new ApiError(422, 'INVALID_QUANTITY', 'Количество должно быть положительным целым числом.');
     }
+    if (context) context.lastSku = product.sku;
     const filters = product.poles && product.curve && product.amps && product.breakingCapacityKa
       ? { poles: product.poles, curve: product.curve, amps: product.amps, breakingCapacityKa: product.breakingCapacityKa, quantity }
       : null;
     const alternatives = filters && product.stock < quantity ? searchCatalog(catalog, filters).alternatives : [];
     return {
       intent: 'product',
+      quantity,
       answer: `${productAnswer(product, quantity)}${alternatives.length ? ' Есть варианты по указанным техническим параметрам.' : ''}${termsText ? ` ${termsText}` : ''}`,
       ...(termsText && { sourceUrl: terms.sourceUrl }),
       filters,

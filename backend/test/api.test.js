@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { once } from 'node:events';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createApp } from '../src/app.js';
+import { loadCatalog } from '../src/catalog.js';
+import { fileURLToPath } from 'node:url';
 import { catalog } from './fixtures.js';
 
-async function withServer(run, options) {
-  const server = createApp(catalog, options).listen(0);
+async function withServer(run, options, products = catalog) {
+  const server = createApp(products, options).listen(0);
   await once(server, 'listening');
   try {
     await run(`http://127.0.0.1:${server.address().port}`);
@@ -101,4 +106,65 @@ test('cart response includes the configured frontend cart route', async () => {
     assert.equal(result.body.cartUrl, '/cart');
     assert.equal(result.body.items[0].quantity, 1);
   }, { cartUrl: '/cart' });
+});
+
+test('team catalog supports all ten demo queries in one session and confirmed checkout', async () => {
+  const products = await loadCatalog(fileURLToPath(new URL('../../data/catalog.json', import.meta.url)));
+  const scenarios = [
+    ['3P C16, 10 kA, 8 штук', ['DEMO-MCB-003', 'DEMO-MCB-004']],
+    ['1P B10, 6 kA, 4 штуки', ['DEMO-MCB-013']],
+    ['3P C16, 10 kA, 3 штуки', ['DEMO-MCB-001']],
+    ['3P C16, 10 kA, 12 штук', ['DEMO-MCB-003']],
+    ['3P C16, 10 kA, 13 штук', []],
+    ['1P C25, 6 kA, 1 штука', []],
+    ['3P C32, 10 kA, 10 штук', ['DEMO-MCB-035']],
+    ['1P C16, 4.5 kA, 2 штуки', ['DEMO-MCB-040']],
+    ['3P B16, 10 kA, 2 штуки', ['DEMO-MCB-006']],
+    ['4P D63, 15 kA, 1 штука', []],
+  ];
+  await withServer(async (base) => {
+    const { body: { sessionId } } = await post(base, '/api/session', {});
+    for (const [query, expected] of scenarios) {
+      const result = await post(base, '/api/search', { query }, sessionId);
+      assert.equal(result.status, 200, query);
+      assert.equal(result.body.intent, 'specifications', query);
+      const available = result.body.exactMatch?.canFulfill
+        ? [result.body.exactMatch.product.sku]
+        : result.body.alternatives.map(({ product }) => product.sku);
+      assert.deepEqual(available, expected, query);
+      assert.deepEqual((await getCart(base, sessionId)).items, []);
+    }
+    const confirmation = { sku: 'DEMO-MCB-003', quantity: 8, confirmed: true, confirmationId: 'team-demo-confirmation' };
+    assert.equal((await post(base, '/api/cart', { ...confirmation, confirmed: false }, sessionId)).status, 400);
+    assert.deepEqual((await getCart(base, sessionId)).items, []);
+    const added = await post(base, '/api/cart', confirmation, sessionId);
+    assert.equal(added.status, 200);
+    assert.equal(added.body.items[0].quantity, 8);
+    assert.equal(added.body.totalPriceKzt, 63200);
+    assert.equal(added.body.cartUrl, '/cart');
+    assert.deepEqual((await post(base, '/api/cart', confirmation, sessionId)).body, added.body);
+    const excess = await post(base, '/api/cart', { ...confirmation, confirmationId: 'too-many' }, sessionId);
+    assert.equal(excess.status, 409);
+    assert.deepEqual(await getCart(base, sessionId), added.body);
+  }, { cartUrl: '/cart' }, products);
+});
+
+test('serves the frontend and cart route while unknown API routes stay JSON', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ekt-frontend-'));
+  try {
+    await writeFile(join(directory, 'index.html'), '<main>EKT frontend</main>');
+    await withServer(async (base) => {
+      for (const path of ['/', '/cart', '/cart/']) {
+        const response = await fetch(`${base}${path}`);
+        assert.equal(response.status, 200);
+        assert.match(response.headers.get('content-type'), /text\/html/);
+        assert.match(await response.text(), /EKT frontend/);
+      }
+      const response = await fetch(`${base}/api/unknown`);
+      assert.equal(response.status, 404);
+      assert.equal((await response.json()).error.code, 'NOT_FOUND');
+    }, { staticDirectory: directory });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

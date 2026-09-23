@@ -34,3 +34,20 @@ test('combines a product answer with requested delivery information', () => {
   assert.match(result.answer, /Доставка по условиям/);
   assert.equal(result.sourceUrl, terms.sourceUrl);
 });
+
+test('new specifications replace remembered product while incomplete specifications ask for details', () => {
+  const context = { lastSku: 'EXACT' };
+  const result = answerQuery(catalog, '1P B10, 6 kA, 4 штуки', terms, context);
+  assert.equal(result.intent, 'specifications');
+  assert.equal(result.filters.poles, 1);
+  assert.equal(result.exactMatch, null);
+  assert.throws(() => answerQuery(catalog, '1P B10, 4 штуки', terms, context), { code: 'MISSING_SPECIFICATIONS' });
+});
+
+test('product inquiries preserve requested quantity when technical ratings are unknown', () => {
+  const products = [{ sku: 'PARTNER-ITEM', name: 'Товар', priceKzt: 500, stock: 10 }];
+  const result = answerQuery(products, 'PARTNER-ITEM, 3 штуки', terms);
+  assert.equal(result.filters, null);
+  assert.equal(result.quantity, 3);
+  assert.equal(result.exactMatch.canFulfill, true);
+});

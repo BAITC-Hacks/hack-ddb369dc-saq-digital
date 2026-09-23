@@ -59,6 +59,15 @@ export function createApp(catalog, options = {}) {
     response.json({ ...sessions.cart(request.get('X-Session-Id')).add(parseBody(cartBody, request.body)), cartUrl: options.cartUrl });
   });
 
+  app.use('/api', (_request, response) => {
+    response.status(404).json({ error: { code: 'NOT_FOUND', message: 'API endpoint not found.' } });
+  });
+
+  if (options.staticDirectory) {
+    app.use(express.static(options.staticDirectory));
+    app.get(/.*/, (_request, response) => response.sendFile('index.html', { root: options.staticDirectory }));
+  }
+
   app.use((error, _request, response, _next) => {
     if (error instanceof ApiError) {
       return response.status(error.status).json({ error: { code: error.code, message: error.message } });

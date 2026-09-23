@@ -1,6 +1,7 @@
 {
   "port": 3001,
   "catalogPath": "../data/catalog.json",
+  "frontendDistPath": "../frontend/dist",
   "cartUrl": "/cart",
   "partnerDetailUrl": "https://ekt.kz/api/products/detail",
   "nvidia": {

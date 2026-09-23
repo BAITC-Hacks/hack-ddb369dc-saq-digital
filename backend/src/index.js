@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
@@ -33,4 +33,11 @@ const queryParser = process.env.APP_MODE === 'live' && process.env.NVIDIA_API_KE
     maxCalls: configuration.nvidia.maxCalls,
   })
   : undefined;
-createApp(catalog, { cartUrl: process.env.CART_URL ?? configuration.cartUrl, purchaseTerms, queryParser }).listen(port, () => console.log(`EKT assistant API is listening on port ${port}`));
+let staticDirectory = resolve(serverDirectory, process.env.FRONTEND_DIST_PATH ?? configuration.frontendDistPath ?? '../frontend/dist');
+try {
+  await access(resolve(staticDirectory, 'index.html'));
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error;
+  staticDirectory = undefined;
+}
+createApp(catalog, { cartUrl: process.env.CART_URL ?? configuration.cartUrl, purchaseTerms, queryParser, staticDirectory }).listen(port, () => console.log(`EKT assistant is listening on port ${port}${staticDirectory ? ' (API + frontend)' : ' (API)'}`));
