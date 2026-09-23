@@ -50,3 +50,30 @@ test('maps the data team demo fields into backend fields', () => {
   assert.equal(product.brand, 'Demo Power');
   assert.equal(product.stock, 12);
 });
+
+test('converts only explicit breaking capacity units and reconciles names in kA', () => {
+  const raw = { id: 1, article: 'UNIT-TEST', name: 'Автомат 1P C16 6 kA', price: 100, quantity: 10 };
+  for (const value of ['6000 A', '6000 А', '6 kA', '6кА']) {
+    const product = normalizePartnerProduct({ ...raw, properties: { NOMINALNAYA_OTKLYUCHAYUSHCHAYA_SPOSOBNOST: value } });
+    assert.equal(product.breakingCapacityKa, 6, value);
+    assert.equal(product.technicalIssue, undefined, value);
+  }
+  assert.equal(normalizePartnerProduct({ ...raw, name: 'Автомат 1P C16', properties: { NOMINALNAYA_OTKLYUCHAYUSHCHAYA_SPOSOBNOST: '6000 A' } }).breakingCapacityKa, 6);
+  assert.equal(normalizePartnerProduct({ ...raw, name: 'Автомат 1P C16 .5 kA' }).breakingCapacityKa, 0.5);
+});
+
+test('excludes missing, unknown, negative or conflicting partner capacity values from matching', () => {
+  const raw = { id: 1, article: 'UNIT-TEST', name: 'Автомат 1P C16 6 kA', price: 100, quantity: 10 };
+  for (const value of ['6000', 6000, '6000 V', '6 kA / 10 kA', '-6000 A', '0 kA', '6 A kA', '10000 A']) {
+    const product = normalizePartnerProduct({ ...raw, properties: { NOMINALNAYA_OTKLYUCHAYUSHCHAYA_SPOSOBNOST: value } });
+    assert.equal(product.breakingCapacityKa, null, String(value));
+    assert.ok(product.technicalIssue, String(value));
+  }
+  for (const name of ['Автомат 1P C16 -6 kA', 'Автомат 1P C16 6 kA / 10 kA']) {
+    const product = normalizePartnerProduct({ ...raw, name });
+    assert.equal(product.breakingCapacityKa, null, name);
+    assert.ok(product.technicalIssue, name);
+  }
+  const absent = normalizePartnerProduct({ ...raw, name: 'Автомат 1P C16' });
+  assert.equal(absent.breakingCapacityKa, null);
+});

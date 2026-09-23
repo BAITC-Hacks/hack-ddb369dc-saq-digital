@@ -75,6 +75,15 @@ function consistentValue(first, second) {
   return first !== null && second !== null && first !== second ? null : first ?? second;
 }
 
+function readCapacity(value) {
+  if (value === undefined || value === null || value === '') return { value: null, unknown: false };
+  const match = String(value).trim().match(/^([+\-−]?(?:\d+(?:[.,]\d+)?|[.,]\d+))\s*(kA|кА|A|А)$/iu);
+  if (!match) return { value: null, unknown: true };
+  const parsed = Number(match[1].replace('−', '-').replace(',', '.'));
+  if (!Number.isFinite(parsed) || parsed <= 0) return { value: null, unknown: true };
+  return { value: /^[kк]/iu.test(match[2]) ? parsed : parsed / 1000, unknown: false };
+}
+
 export function normalizePartnerProduct(input) {
   const raw = partnerDetailSchema.parse(input);
   const properties = raw.properties ?? {};
@@ -83,16 +92,20 @@ export function normalizePartnerProduct(input) {
   const nameRating = raw.name.match(/(?<!\p{L})([BCDВСД])\s*(\d{1,3})(?=$|[^\p{L}\p{N}])/iu);
   const nameAmps = readNumber(nameRating?.[2] ?? raw.name.match(/\b(\d{1,4})\s*[АA](?=$|[^\p{L}])/iu)?.[1]);
   const propertyAmps = readNumber(properties.NOMINALNYY_TOK);
-  const nameCapacity = readNumber(raw.name.match(/(\d+(?:[.,]\d+)?)\s*(?:kA|кА)(?=$|[^\p{L}])/iu)?.[1]);
-  const propertyCapacity = readNumber(properties.NOMINALNAYA_OTKLYUCHAYUSHCHAYA_SPOSOBNOST);
+  const nameCapacities = [...raw.name.matchAll(/(?<![\p{L}\p{N}.,+\-−])([+\-−]?(?:\d+(?:[.,]\d+)?|[.,]\d+))\s*(?:kA|кА)(?=$|[^\p{L}])/giu)].map((match) => readCapacity(match[0]));
+  const nameCapacity = nameCapacities[0]?.value ?? null;
+  const capacityProperty = readCapacity(properties.NOMINALNAYA_OTKLYUCHAYUSHCHAYA_SPOSOBNOST);
+  const propertyCapacity = capacityProperty.value;
+  const ambiguousCapacity = capacityProperty.unknown || nameCapacities.some((entry) => entry.unknown || entry.value !== nameCapacity);
   const poles = consistentValue(namePoles, propertyPoles);
   const amps = consistentValue(nameAmps, propertyAmps);
-  const breakingCapacityKa = consistentValue(nameCapacity, propertyCapacity);
+  const breakingCapacityKa = ambiguousCapacity ? null : consistentValue(nameCapacity, propertyCapacity);
   const technicalIssue = [
     namePoles !== null && propertyPoles !== null && namePoles !== propertyPoles,
     nameAmps !== null && propertyAmps !== null && nameAmps !== propertyAmps,
     nameCapacity !== null && propertyCapacity !== null && nameCapacity !== propertyCapacity,
-  ].some(Boolean) ? 'Характеристики в названии и свойствах расходятся; совместимость требует проверки.' : undefined;
+  ].some(Boolean) ? 'Характеристики в названии и свойствах расходятся; совместимость требует проверки.'
+    : ambiguousCapacity ? 'Единицы или значение отключающей способности неоднозначны; совместимость требует проверки.' : undefined;
   const minimumOrderQuantity = readNumber(properties.KRATNOST_MIN);
 
   return productSchema.parse({
