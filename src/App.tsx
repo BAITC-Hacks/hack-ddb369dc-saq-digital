@@ -64,8 +64,8 @@ function Suggestion({ product, quantity, exact, reason, choose }: {
 
 type Confirmation = { product: ApiProduct; quantity: number; confirmationId: string }
 
-function Widget({ onCartChanged, connectionError }: { onCartChanged: (cart: CartSnapshot) => void; connectionError: string }) {
-  const [open, setOpen] = useState(true)
+function Widget({ onCartChanged }: { onCartChanged: (cart: CartSnapshot) => void }) {
+  const [open, setOpen] = useState(() => !window.matchMedia?.('(max-width: 480px)').matches)
   const [query, setQuery] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
   const [result, setResult] = useState<SearchResponse | null>(null)
@@ -76,6 +76,7 @@ function Widget({ onCartChanged, connectionError }: { onCartChanged: (cart: Cart
   const [confirmError, setConfirmError] = useState('')
   const [confirmAttempted, setConfirmAttempted] = useState(false)
   const confirmationInFlight = useRef(false)
+  const widgetRef = useRef<HTMLElement>(null)
   const launcherRef = useRef<HTMLButtonElement>(null)
   const messageRef = useRef<HTMLTextAreaElement>(null)
   const confirmationRef = useRef<HTMLElement>(null)
@@ -128,7 +129,7 @@ function Widget({ onCartChanged, connectionError }: { onCartChanged: (cart: Cart
           event.preventDefault()
           closeConfirmation()
         }
-      } else if (open) {
+      } else if (open && widgetRef.current?.contains(document.activeElement)) {
         event.preventDefault()
         closeChat()
       }
@@ -206,11 +207,10 @@ function Widget({ onCartChanged, connectionError }: { onCartChanged: (cart: Cart
   const sourceHref = safeLink(result?.sourceUrl)
 
   return <>
-    {open && <aside className="widget" aria-labelledby="ekt-chat-title" role="dialog" aria-modal="false">
+    {open && <aside ref={widgetRef} className="widget" aria-labelledby="ekt-chat-title" role="dialog" aria-modal="false">
       <header><div className="agent"><span aria-hidden="true"><Sparkle size={17} weight="regular" /></span><div><strong id="ekt-chat-title">Помощник EKT</strong><small>Каталог и условия покупки</small></div></div><button className="icon" type="button" aria-label="Свернуть чат" onClick={closeChat}><X size={19} /></button></header>
       <section className="messages" aria-live="polite">
         <div className="message assistant"><small>Помощник EKT</small><p>Здравствуйте! Подберу товар по артикулу или характеристикам, проверю остатки и объясню аналоги. Могу ответить про доставку и оплату.</p></div>
-        {connectionError && <p className="error" role="alert">{connectionError}</p>}
         {result && <>
           <div className="message customer"><small>Вы</small><p>{submittedQuery}</p></div>
           <div className="message assistant"><small>Помощник EKT</small><p>{result.answer}</p>{sourceHref && <a className="source-link" href={sourceHref} target="_blank" rel="noreferrer">Источник условий</a>}</div>
@@ -286,7 +286,7 @@ function App() {
     {onCartRoute ? <CartScreen cart={cart} error={cartError} /> : <>
       <section className="showcase" aria-label="Специальные предложения"><article className="showcase-main"><div className="promo-copy"><p className="promo-brand">Промрукав</p><h1>МОНТАЖНЫЕ <strong>РЕШЕНИЯ</strong></h1><span>ЖАНА / НОВИНКА!</span></div><div className="product-assembly" aria-hidden="true"><i className="assembly-box" /><i className="assembly-rail" /><i className="assembly-cover" /><i className="assembly-tube" /></div></article><article className="showcase-side"><span>CHiNT</span><div className="breaker-pair" aria-hidden="true"><i /><i /></div><small>Низковольтная аппаратура</small></article></section>
       <section className="catalog" id="catalog"><h2>Каталог продукции</h2><div className="category-bar"><a href="#cable">Кабель / Провод</a><a href="#light">Светильники / Лампы</a><a href="#low">Низковольтная аппаратура</a><a href="#tools">Монтаж и инструмент</a><a href="#cabinet">Шкафы / Щиты</a></div></section>
-      <Widget onCartChanged={openCart} connectionError={cartError} />
+      <Widget onCartChanged={openCart} />
     </>}
   </main>
 }

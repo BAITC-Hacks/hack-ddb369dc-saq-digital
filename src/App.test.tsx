@@ -36,6 +36,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.resetAllMocks()
+  vi.unstubAllGlobals()
   window.history.replaceState({}, '', '/')
 })
 
@@ -44,6 +45,10 @@ describe('EKT assistant integration', () => {
     render(<App />)
     const chat = screen.getByRole('dialog', { name: 'Помощник EKT' })
     expect(chat).toBeInTheDocument()
+    screen.getByRole('button', { name: 'Каталог' }).focus()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(chat).toBeInTheDocument()
+    screen.getByRole('textbox', { name: 'Сообщение помощнику EKT' }).focus()
     fireEvent.keyDown(window, { key: 'Escape' })
     const launcher = screen.getByRole('button', { name: 'Открыть чат с помощником EKT' })
     expect(launcher).toHaveFocus()
@@ -51,6 +56,29 @@ describe('EKT assistant integration', () => {
     fireEvent.click(launcher)
     expect(screen.getByRole('dialog', { name: 'Помощник EKT' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'Сообщение помощнику EKT' })).toHaveFocus()
+  })
+
+  it('starts collapsed at mobile width without removing the launcher', () => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }))
+    render(<App />)
+    expect(screen.queryByRole('dialog', { name: 'Помощник EKT' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат с помощником EKT' }))
+    expect(screen.getByRole('dialog', { name: 'Помощник EKT' })).toBeInTheDocument()
+  })
+
+  it('does not show a cart loading error as an unsolicited chat message', async () => {
+    vi.mocked(getCart).mockRejectedValue(new Error('cart unavailable'))
+    render(<App />)
+    await act(async () => { await Promise.resolve() })
+    expect(screen.getByRole('dialog', { name: 'Помощник EKT' })).not.toHaveTextContent('cart unavailable')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('still shows a cart loading error on the cart screen', async () => {
+    window.history.replaceState({}, '', '/cart')
+    vi.mocked(getCart).mockRejectedValue(new Error('cart unavailable'))
+    render(<App />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('cart unavailable')
   })
 
   it('keeps confirmation keyboard focus inside the modal and allows Escape before submitting', async () => {
