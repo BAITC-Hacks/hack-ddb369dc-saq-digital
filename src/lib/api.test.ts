@@ -6,9 +6,80 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 })
 
 beforeEach(() => sessionStorage.clear())
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.unstubAllGlobals()
+  vi.useRealTimers()
+})
 
 describe('assistant API client', () => {
+  it('aborts a stalled cart request after 15 seconds without retrying the mutation', async () => {
+    vi.useFakeTimers()
+    sessionStorage.setItem('ekt-assistant-session-id', 'session-timeout')
+    let requestSignal: AbortSignal | undefined
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+      requestSignal = init.signal as AbortSignal
+      requestSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = expect(addToCart('ALT-15', 8, 'confirmation-timeout')).rejects.toMatchObject({
+      status: 0, code: 'REQUEST_TIMEOUT',
+    })
+    await vi.advanceTimersByTimeAsync(15_000)
+    await result
+
+    expect(requestSignal?.aborted).toBe(true)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(sessionStorage.getItem('ekt-assistant-session-id')).toBe('session-timeout')
+  })
+
+  it('keeps the timeout active while consuming a stalled response body', async () => {
+    vi.useFakeTimers()
+    sessionStorage.setItem('ekt-assistant-session-id', 'session-body-timeout')
+    const fetchMock = vi.fn((_url: string, init: RequestInit) => Promise.resolve({
+      ok: true,
+      json: () => new Promise((_resolve, reject) => {
+        init.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+      }),
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = expect(getCart()).rejects.toMatchObject({ status: 0, code: 'REQUEST_TIMEOUT' })
+    await vi.advanceTimersByTimeAsync(15_000)
+    await result
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('clears the timeout after a successful response', async () => {
+    vi.useFakeTimers()
+    sessionStorage.setItem('ekt-assistant-session-id', 'session-success')
+    const fetchMock = vi.fn().mockResolvedValue(json({ items: [], totalPriceKzt: 0, cartUrl: '/cart' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getCart()
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(15_000)
+    expect(fetchMock.mock.calls[0][1].signal.aborted).toBe(false)
+  })
+
+  it('reports network failures with a stable error code and clears the timeout', async () => {
+    vi.useFakeTimers()
+    sessionStorage.setItem('ekt-assistant-session-id', 'session-network')
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getCart()).rejects.toMatchObject({ status: 0, code: 'NETWORK_ERROR' })
+
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('creates a session before search and passes X-Session-Id on subsequent requests', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(json({ sessionId: 'session-1' }, 201))

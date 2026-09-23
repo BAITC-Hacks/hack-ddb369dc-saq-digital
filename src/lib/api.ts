@@ -2,6 +2,7 @@ import type { CartSnapshot, SearchResponse } from '../types'
 
 const sessionKey = 'ekt-assistant-session-id'
 const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+const requestTimeoutMs = 15_000
 let sessionRequest: Promise<string> | null = null
 
 export class ApiError extends Error {
@@ -11,26 +12,37 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, init: RequestInit = {}, sessionId?: string): Promise<T> {
-  let response: Response
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs)
   try {
-    response = await fetch(`${baseUrl}/api${path}`, {
+    const response = await fetch(`${baseUrl}/api${path}`, {
       ...init,
+      signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
         ...(sessionId ? { 'X-Session-Id': sessionId } : {}),
         ...init.headers,
       },
     })
-  } catch {
-    throw new ApiError('Сервер помощника недоступен. Проверьте подключение и повторите запрос.', 0)
-  }
 
-  const body: unknown = await response.json().catch(() => null)
-  if (!response.ok) {
-    const error = body as { error?: { code?: string; message?: string } } | null
-    throw new ApiError(error?.error?.message ?? 'Не удалось выполнить запрос. Повторите попытку.', response.status, error?.error?.code)
+    const body: unknown = await response.json().catch((error: unknown) => {
+      if (controller.signal.aborted || !(error instanceof SyntaxError)) throw error
+      return null
+    })
+    if (!response.ok) {
+      const error = body as { error?: { code?: string; message?: string } } | null
+      throw new ApiError(error?.error?.message ?? 'Не удалось выполнить запрос. Повторите попытку.', response.status, error?.error?.code)
+    }
+    return body as T
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    if (controller.signal.aborted) {
+      throw new ApiError('Сервер не ответил вовремя. Проверьте состояние корзины перед повторной попыткой.', 0, 'REQUEST_TIMEOUT')
+    }
+    throw new ApiError('Сервер помощника недоступен. Проверьте подключение и повторите запрос.', 0, 'NETWORK_ERROR')
+  } finally {
+    clearTimeout(timeout)
   }
-  return body as T
 }
 
 export async function ensureSession(): Promise<string> {
