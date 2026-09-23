@@ -90,3 +90,15 @@ test('uses validated AI filters only to search local catalog', async () => {
     return { poles: 3, curve: 'C', amps: 16, breakingCapacityKa: 10, quantity: 8 };
   } } });
 });
+
+test('cart response includes the configured frontend cart route', async () => {
+  await withServer(async (base) => {
+    const { body: { sessionId } } = await post(base, '/api/session', {});
+    const result = await post(base, '/api/cart', {
+      sku: 'EXACT', quantity: 1, confirmed: true, confirmationId: 'cart-link-1',
+    }, sessionId);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.cartUrl, '/cart');
+    assert.equal(result.body.items[0].quantity, 1);
+  }, { cartUrl: '/cart' });
+});

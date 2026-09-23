@@ -15,6 +15,12 @@ test('parses Cyrillic electrical notation', () => {
   });
 });
 
+test('parses singular quantity and fractional breaking capacity', () => {
+  assert.deepEqual(parseQuery('Нужен автомат 1P C16, 4.5 kA, 1 штука'), {
+    poles: 1, curve: 'C', amps: 16, breakingCapacityKa: 4.5, quantity: 1,
+  });
+});
+
 test('rejects missing and invalid specifications', () => {
   assert.throws(() => parseQuery('нужен автомат'), { code: 'MISSING_SPECIFICATIONS' });
   assert.throws(() => parseQuery('3P C16, 10 kA, 0 штук'), { code: 'INVALID_SPECIFICATIONS' });

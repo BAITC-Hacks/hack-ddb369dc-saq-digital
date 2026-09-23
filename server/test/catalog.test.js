@@ -3,7 +3,7 @@ import test from 'node:test';
 import { mkdtemp, writeFile, unlink, rmdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadCatalog, normalizePartnerProduct, validateCatalog } from '../src/catalog.js';
+import { loadCatalog, normalizeDemoProduct, normalizePartnerProduct, validateCatalog } from '../src/catalog.js';
 import { catalog } from './fixtures.js';
 
 test('accepts demo catalog and rejects duplicate or invalid products', () => {
@@ -38,4 +38,15 @@ test('loads a local JSON catalog for offline mode', async () => {
     await unlink(path);
     await rmdir(directory);
   }
+});
+
+test('maps the data team demo fields into backend fields', () => {
+  const product = normalizeDemoProduct({
+    sku: 'DEMO-MCB-003', name: 'Автомат Demo Power 3P C16 15 kA', brand: 'Demo Power',
+    poles: 3, curve: 'C', amps: 16, breakingCapacity: 15, price: 7900, currency: 'KZT', stock: 12,
+  });
+  assert.equal(product.breakingCapacityKa, 15);
+  assert.equal(product.priceKzt, 7900);
+  assert.equal(product.brand, 'Demo Power');
+  assert.equal(product.stock, 12);
 });
