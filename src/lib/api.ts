@@ -4,6 +4,7 @@ const sessionKey = 'ekt-assistant-session-id'
 const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 const requestTimeoutMs = 15_000
 let sessionRequest: Promise<string> | null = null
+let chatSessions: Readonly<Record<string, Promise<string> | undefined>> = {}
 
 export class ApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) {
@@ -71,10 +72,40 @@ async function withSession<T>(operation: (sessionId: string) => Promise<T>): Pro
   }
 }
 
-export function searchCatalog(query: string): Promise<SearchResponse> {
-  return withSession((sessionId) => request('/search', {
+function ensureChatSession(chatId: string): Promise<string> {
+  const saved = Object.hasOwn(chatSessions, chatId) ? chatSessions[chatId] : undefined
+  if (saved) return saved
+  const pending = request<{ sessionId: string }>('/session', { method: 'POST', body: '{}' })
+    .then(({ sessionId }) => {
+      if (!sessionId) throw new ApiError('Сервер не создал сессию.', 0)
+      return sessionId
+    })
+    .catch((error: unknown) => {
+      if (chatSessions[chatId] === pending) chatSessions = { ...chatSessions, [chatId]: undefined }
+      throw error
+    })
+  chatSessions = { ...chatSessions, [chatId]: pending }
+  return pending
+}
+
+async function withChatSession<T>(chatId: string, operation: (sessionId: string) => Promise<T>): Promise<T> {
+  const pending = ensureChatSession(chatId)
+  const sessionId = await pending
+  try {
+    return await operation(sessionId)
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 401) throw error
+    if (chatSessions[chatId] === pending) chatSessions = { ...chatSessions, [chatId]: undefined }
+    return operation(await ensureChatSession(chatId))
+  }
+}
+
+export function searchCatalog(query: string, chatId?: string): Promise<SearchResponse> {
+  const search = (sessionId: string) => request<SearchResponse>('/search', {
     method: 'POST', body: JSON.stringify({ query }),
-  }, sessionId))
+  }, sessionId)
+  // Dialog context is isolated in memory; cart operations keep their existing shared session.
+  return chatId === undefined ? withSession(search) : withChatSession(chatId, search)
 }
 
 export async function getCart(): Promise<CartSnapshot> {

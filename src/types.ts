@@ -10,6 +10,7 @@ export type ApiProduct = {
   priceKzt: number
   properties?: Record<string, unknown>
   certificates?: { name: string; url: string }[]
+  stores?: { id: number; name: string; quantity: number }[]
   minimumOrderQuantity?: number
   technicalIssue?: string
 }

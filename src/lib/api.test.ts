@@ -12,6 +12,108 @@ afterEach(() => {
 })
 
 describe('assistant API client', () => {
+  it('isolates A/B/A chat searches while retaining the global cart session', async () => {
+    sessionStorage.setItem('ekt-assistant-session-id', 'global-cart')
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ sessionId: 'chat-a' }, 201))
+      .mockResolvedValueOnce(json({ answer: 'A' }))
+      .mockResolvedValueOnce(json({ sessionId: 'chat-b' }, 201))
+      .mockResolvedValueOnce(json({ answer: 'B' }))
+      .mockResolvedValueOnce(json({ answer: 'A follow-up' }))
+      .mockResolvedValueOnce(json({ items: [], totalPriceKzt: 0, cartUrl: '/cart' }))
+      .mockResolvedValueOnce(json({ items: [], totalPriceKzt: 0, cartUrl: '/cart' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await searchCatalog('Автомат', 'isolated-a')
+    await searchCatalog('Кабель', 'isolated-b')
+    await searchCatalog('А 12 штук?', 'isolated-a')
+    await getCart()
+    await addToCart('SKU-A', 1, 'confirmed-a')
+
+    expect(fetchMock.mock.calls.map(([, init]) => init.headers['X-Session-Id'])).toEqual([
+      undefined, 'chat-a', undefined, 'chat-b', 'chat-a', 'global-cart', 'global-cart',
+    ])
+    expect(JSON.parse(fetchMock.mock.calls[4][1].body)).toEqual({ query: 'А 12 штук?' })
+    expect(sessionStorage.getItem('ekt-assistant-session-id')).toBe('global-cart')
+    expect(sessionStorage.length).toBe(1)
+  })
+
+  it('recreates only the expired chat session and retries once', async () => {
+    sessionStorage.setItem('ekt-assistant-session-id', 'retained-cart')
+    const unauthorized = () => json({ error: { code: 'SESSION_NOT_FOUND' } }, 401)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ sessionId: 'retained-b' }, 201))
+      .mockResolvedValueOnce(json({ answer: 'B' }))
+      .mockResolvedValueOnce(json({ sessionId: 'expired-a' }, 201))
+      .mockResolvedValueOnce(unauthorized())
+      .mockResolvedValueOnce(json({ sessionId: 'fresh-a' }, 201))
+      .mockResolvedValueOnce(unauthorized())
+      .mockResolvedValueOnce(json({ answer: 'B follow-up' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await searchCatalog('Кабель', 'expiry-b')
+    await expect(searchCatalog('Автомат', 'expiry-a')).rejects.toMatchObject({ status: 401 })
+    await searchCatalog('А 12 метров?', 'expiry-b')
+
+    expect(fetchMock).toHaveBeenCalledTimes(7)
+    expect(fetchMock.mock.calls[3][1].headers['X-Session-Id']).toBe('expired-a')
+    expect(fetchMock.mock.calls[5][1].headers['X-Session-Id']).toBe('fresh-a')
+    expect(fetchMock.mock.calls[6][1].headers['X-Session-Id']).toBe('retained-b')
+    expect(sessionStorage.getItem('ekt-assistant-session-id')).toBe('retained-cart')
+  })
+
+  it('shares session creation for concurrent first searches in the same chat', async () => {
+    let resolveSession!: (response: Response) => void
+    const fetchMock = vi.fn()
+      .mockImplementationOnce(() => new Promise<Response>((resolve) => { resolveSession = resolve }))
+      .mockResolvedValueOnce(json({ answer: 'First' }))
+      .mockResolvedValueOnce(json({ answer: 'Second' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const first = searchCatalog('Первый запрос', 'concurrent-chat')
+    const second = searchCatalog('Второй запрос', 'concurrent-chat')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    resolveSession(json({ sessionId: 'shared-chat' }, 201))
+    await Promise.all([first, second])
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls.slice(1).map(([, init]) => init.headers['X-Session-Id'])).toEqual(['shared-chat', 'shared-chat'])
+    expect(sessionStorage.length).toBe(0)
+  })
+
+  it('allows retrying a chat after session creation fails', async () => {
+    const fetchMock = vi.fn()
+      .mockRejectedValueOnce(new TypeError('Offline'))
+      .mockResolvedValueOnce(json({ sessionId: 'recovered-chat' }, 201))
+      .mockResolvedValueOnce(json({ answer: 'Recovered' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(searchCatalog('Вопрос', 'recovering-chat')).rejects.toMatchObject({ code: 'NETWORK_ERROR' })
+    await searchCatalog('Повторный вопрос', 'recovering-chat')
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls[2][1].headers['X-Session-Id']).toBe('recovered-chat')
+    expect(sessionStorage.length).toBe(0)
+  })
+
+  it('sends follow-up queries unchanged in the same session without resending history', async () => {
+    const response = { intent: 'specifications', answer: 'Есть в наличии.', filters: { quantity: 12 }, exactMatch: null, alternatives: [] }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ sessionId: 'conversation-session' }, 201))
+      .mockResolvedValueOnce(json(response))
+      .mockResolvedValueOnce(json(response))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await searchCatalog('Нужен автомат C16, 8 штук')
+    await searchCatalog('А есть 12 штук?')
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock.mock.calls[1][1].headers['X-Session-Id']).toBe('conversation-session')
+    expect(fetchMock.mock.calls[2][1].headers['X-Session-Id']).toBe('conversation-session')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ query: 'Нужен автомат C16, 8 штук' })
+    expect(JSON.parse(fetchMock.mock.calls[2][1].body)).toEqual({ query: 'А есть 12 штук?' })
+  })
+
   it('aborts a stalled cart request after 15 seconds without retrying the mutation', async () => {
     vi.useFakeTimers()
     sessionStorage.setItem('ekt-assistant-session-id', 'session-timeout')

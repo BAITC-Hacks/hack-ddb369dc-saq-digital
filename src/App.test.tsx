@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { addToCart, ApiError, getCart, searchCatalog } from './lib/api'
@@ -36,12 +36,86 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.resetAllMocks()
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
   window.localStorage.clear()
   window.history.replaceState({}, '', '/')
 })
 
 describe('EKT assistant integration', () => {
+  it.each([null, 'false', 'invalid'])('starts with reading mode disabled for stored value %s', (storedValue) => {
+    if (storedValue !== null) window.localStorage.setItem('ekt-reading-mode', storedValue)
+    render(<App />)
+    expect(screen.getByRole('button', { name: 'Для слабовидящих' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByRole('dialog', { name: 'Помощник EKT' })).not.toHaveClass('reading-mode')
+  })
+
+  it('preserves the draft, results, language choice and reading preference without issuing requests', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    await screen.findByText(searchResult.answer)
+    fireEvent.change(screen.getByRole('textbox', { name: 'Сообщение помощнику EKT' }), { target: { value: 'Мой следующий вопрос' } })
+    const requestCount = vi.mocked(getCart).mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Для слабовидящих' }))
+    expect(screen.getByRole('button', { name: 'Для слабовидящих' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('dialog', { name: 'Помощник EKT' })).toHaveClass('reading-mode')
+    expect(document.querySelector('main.store')).not.toHaveClass('reading-mode')
+    expect(window.localStorage.getItem('ekt-reading-mode')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Қазақша' }))
+    expect(screen.getByRole('button', { name: 'Нашар көретіндерге' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('textbox', { name: 'EKT көмекшісіне хабарлама' })).toHaveValue('Мой следующий вопрос')
+    expect(screen.getByText(searchResult.answer)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Чатты жабу' }))
+    const launcher = screen.getByRole('button', { name: 'EKT көмекшісімен чатты ашу' })
+    expect(launcher).toHaveClass('reading-mode')
+    fireEvent.click(launcher)
+    expect(screen.getByRole('dialog', { name: 'EKT көмекшісі' })).toHaveClass('reading-mode')
+    expect(screen.getByRole('textbox', { name: 'EKT көмекшісіне хабарлама' })).toHaveValue('Мой следующий вопрос')
+    expect(searchCatalog).toHaveBeenCalledTimes(1)
+    expect(getCart).toHaveBeenCalledTimes(requestCount)
+    expect(addToCart).not.toHaveBeenCalled()
+
+    cleanup()
+    render(<App />)
+    expect(screen.getByRole('button', { name: 'Нашар көретіндерге' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('dialog', { name: 'EKT көмекшісі' })).toHaveClass('reading-mode')
+    fireEvent.click(screen.getByRole('button', { name: 'Нашар көретіндерге' }))
+    expect(window.localStorage.getItem('ekt-reading-mode')).toBe('false')
+    expect(screen.getByRole('dialog', { name: 'EKT көмекшісі' })).not.toHaveClass('reading-mode')
+  })
+
+  it('keeps reading mode usable when browser storage is unavailable', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('Storage blocked') })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('Storage blocked') })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат с помощником EKT' }))
+    const toggle = screen.getByRole('button', { name: 'Для слабовидящих' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('dialog', { name: 'Помощник EKT' })).toHaveClass('reading-mode')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('carries reading mode through explicit cart confirmation and lets users disable it on the cart screen', async () => {
+    window.localStorage.setItem('ekt-reading-mode', 'true')
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Выбрать/ }))
+    expect(screen.getByRole('dialog', { name: 'Добавить товар в корзину?' })).toHaveClass('reading-mode')
+    expect(addToCart).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' }))
+    const heading = await screen.findByRole('heading', { name: 'Корзина' })
+    expect(heading.closest('section')).toHaveClass('reading-mode')
+    expect(heading).toHaveFocus()
+    expect(addToCart).toHaveBeenCalledTimes(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Для слабовидящих' }))
+    expect(heading.closest('section')).not.toHaveClass('reading-mode')
+    expect(window.localStorage.getItem('ekt-reading-mode')).toBe('false')
+    expect(addToCart).toHaveBeenCalledTimes(1)
+  })
+
   it('associates validation errors with the input and translates them when language changes', () => {
     render(<App />)
     fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
@@ -81,8 +155,10 @@ describe('EKT assistant integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Проверить добавление' }))
     fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
     const heading = await screen.findByRole('heading', { name: 'Корзина' })
-    expect(heading).toHaveFocus()
-    expect(document.title).toBe('Корзина — EKT')
+    await waitFor(() => {
+      expect(heading).toHaveFocus()
+      expect(document.title).toBe('Корзина — EKT')
+    })
     expect(vi.mocked(addToCart).mock.calls[1][2]).toBe(vi.mocked(addToCart).mock.calls[0][2])
   })
 
@@ -119,7 +195,7 @@ describe('EKT assistant integration', () => {
     expect(screen.getByRole('textbox', { name: 'Сообщение помощнику EKT' })).toHaveFocus()
     expect(searchCatalog).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
-    expect(searchCatalog).toHaveBeenCalledWith(expect.stringContaining('8 штук'))
+    expect(searchCatalog).toHaveBeenCalledWith(expect.stringContaining('8 штук'), expect.any(String))
   })
 
   it('fills a Kazakh purchase-terms suggestion without submitting it', () => {
@@ -129,7 +205,7 @@ describe('EKT assistant integration', () => {
     expect(screen.getByRole('textbox', { name: 'EKT көмекшісіне хабарлама' })).toHaveValue('Төлем шарттары қандай?')
     expect(searchCatalog).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Жіберу' }))
-    expect(searchCatalog).toHaveBeenCalledWith('оплата шарттары қандай?')
+    expect(searchCatalog).toHaveBeenCalledWith('оплата шарттары қандай?', expect.any(String))
   })
 
   it('offers language choices in the first assistant message and persists the chat choice', () => {
@@ -160,7 +236,7 @@ describe('EKT assistant integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Қазақша' }))
     fireEvent.click(screen.getByRole('button', { name: 'Мысал' }))
     fireEvent.click(await screen.findByRole('button', { name: /Таңдау/ }))
-    expect(searchCatalog).toHaveBeenCalledWith(expect.stringContaining('8 шт.'))
+    expect(searchCatalog).toHaveBeenCalledWith(expect.stringContaining('8 шт.'), expect.any(String))
     expect(screen.getByText(/8 дана керек/, { selector: '.message.customer p' })).toBeInTheDocument()
     expect(addToCart).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Иә, қосу' }))
@@ -186,8 +262,8 @@ describe('EKT assistant integration', () => {
     expect(screen.getByRole('button', { name: 'Русский' })).toHaveFocus()
   })
 
-  it('starts collapsed at mobile width without removing the launcher', () => {
-    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({ matches: true }))
+  it('starts collapsed on a fresh desktop visit without removing the launcher', () => {
+    window.sessionStorage.clear()
     render(<App />)
     expect(screen.queryByRole('dialog', { name: 'Помощник EKT' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Открыть чат с помощником EKT' }))
@@ -232,7 +308,7 @@ describe('EKT assistant integration', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
     expect(await screen.findByText('Параметры совпадают.')).toBeInTheDocument()
-    expect(searchCatalog).toHaveBeenCalledWith(expect.stringContaining('3P C16'))
+    expect(searchCatalog).toHaveBeenCalledWith(expect.stringContaining('3P C16'), expect.any(String))
     expect(screen.getByRole('button', { name: /Недоступно/ })).toBeDisabled()
     expect(addToCart).not.toHaveBeenCalled()
   })
