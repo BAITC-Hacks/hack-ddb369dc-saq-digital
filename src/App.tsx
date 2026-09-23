@@ -152,7 +152,7 @@ function App() {
           <p className="helper-text">Товар не попадёт в корзину без вашего явного подтверждения.</p>
         </div>
 
-        <aside className="cart-panel" aria-live="polite">
+        <aside className="cart-panel" aria-label="Корзина" aria-live="polite">
           <div className="cart-panel__heading">
             <div><p className="panel-kicker">Корзина</p><h2>К заказу</h2></div>
             <span className="cart-count">{cartProduct ? 1 : 0}</span>
