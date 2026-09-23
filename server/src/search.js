@@ -7,9 +7,9 @@ export function parseQuery(query) {
     throw new ApiError(400, 'INVALID_QUERY', 'Введите технический запрос.');
   }
 
-  const poles = query.match(/\b([1-4])\s*p\b/i)?.[1];
-  const rating = query.match(/\b([BCD])\s*(\d{1,3})\b/i);
-  const breakingCapacity = query.match(new RegExp(`${number}\\s*kA\\b`, 'i'))?.[1];
+  const poles = query.match(/\b([1-4])\s*(?:p|р|ф)(?=$|[^\p{L}])/iu)?.[1];
+  const rating = query.match(/(?<!\p{L})([BCDВСД])\s*(\d{1,3})(?=$|[^\p{L}\p{N}])/iu);
+  const breakingCapacity = query.match(new RegExp(`${number}\\s*(?:kA|кА)(?=$|[^\\p{L}])`, 'iu'))?.[1];
   const quantity = query.match(/(?:^|\D)(\d+)\s*(?:шт\.?|штук|штуки|единиц)(?=$|[^\p{L}])/iu)?.[1];
 
   if (!poles || !rating || !breakingCapacity || !quantity) {
@@ -18,7 +18,7 @@ export function parseQuery(query) {
 
   const filters = {
     poles: Number(poles),
-    curve: rating[1].toUpperCase(),
+    curve: ({ 'В': 'B', 'С': 'C', 'Д': 'D' })[rating[1].toUpperCase()] ?? rating[1].toUpperCase(),
     amps: Number(rating[2]),
     breakingCapacityKa: Number(breakingCapacity.replace(',', '.')),
     quantity: Number(quantity),
@@ -45,7 +45,7 @@ export function searchCatalog(catalog, filters) {
     .slice(0, 2)
     .map((product) => ({
       product,
-      reason: `Те же ${filters.poles}P ${filters.curve}${filters.amps}; отключающая способность ${product.breakingCapacityKa} kA не ниже требуемых ${filters.breakingCapacityKa} kA.`,
+      reason: `Совпадают ${filters.poles}P ${filters.curve}${filters.amps}; отключающая способность ${product.breakingCapacityKa} kA не ниже требуемых ${filters.breakingCapacityKa} kA. Остальные параметры проверьте перед покупкой.`,
     }));
 
   return {

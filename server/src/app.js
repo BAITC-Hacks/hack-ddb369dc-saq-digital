@@ -1,8 +1,8 @@
 import express from 'express';
 import { z } from 'zod';
 import { ApiError } from './errors.js';
-import { parseQuery, searchCatalog } from './search.js';
-import { Cart } from './cart.js';
+import { answerQuery } from './assistant.js';
+import { Sessions } from './sessions.js';
 
 const searchBody = z.strictObject({ query: z.string().min(1) });
 const cartBody = z.strictObject({
@@ -20,27 +20,43 @@ function parseBody(schema, body) {
   return result.data;
 }
 
-export function createApp(catalog) {
+export function createApp(catalog, options = {}) {
   const app = express();
-  const cart = new Cart(catalog);
+  const sessions = new Sessions(catalog);
   app.use(express.json());
   app.use((request, response, next) => {
     response.set('Access-Control-Allow-Origin', '*');
-    response.set('Access-Control-Allow-Headers', 'Content-Type');
+    response.set('Access-Control-Allow-Headers', 'Content-Type, X-Session-Id');
     response.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     if (request.method === 'OPTIONS') return response.sendStatus(204);
     next();
   });
 
-  app.post('/api/search', (request, response) => {
+  app.post('/api/search', async (request, response) => {
     const { query } = parseBody(searchBody, request.body);
-    response.json(searchCatalog(catalog, parseQuery(query)));
+    const sessionId = request.get('X-Session-Id');
+    const context = sessionId ? sessions.context(sessionId) : undefined;
+    try {
+      response.json(answerQuery(catalog, query, options.purchaseTerms, context));
+    } catch (error) {
+      if (error.code !== 'MISSING_SPECIFICATIONS' || !options.queryParser) throw error;
+      try {
+        const filters = await options.queryParser.extract(query);
+        response.json(answerQuery(catalog, query, options.purchaseTerms, context, filters));
+      } catch {
+        throw error;
+      }
+    }
   });
 
-  app.get('/api/cart', (_request, response) => response.json(cart.snapshot()));
+  app.post('/api/session', (_request, response) => response.status(201).json({ sessionId: sessions.create() }));
+
+  app.get('/api/cart', (request, response) => {
+    response.json({ ...sessions.cart(request.get('X-Session-Id')).snapshot(), cartUrl: options.cartUrl });
+  });
 
   app.post('/api/cart', (request, response) => {
-    response.json(cart.add(parseBody(cartBody, request.body)));
+    response.json({ ...sessions.cart(request.get('X-Session-Id')).add(parseBody(cartBody, request.body)), cartUrl: options.cartUrl });
   });
 
   app.use((error, _request, response, _next) => {

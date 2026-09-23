@@ -39,6 +39,9 @@ export class Cart {
     }
 
     const nextQuantity = (this.items.get(sku) ?? 0) + quantity;
+    if (product.minimumOrderQuantity && quantity % product.minimumOrderQuantity !== 0) {
+      throw new ApiError(409, 'INVALID_ORDER_MULTIPLE', `Количество должно быть кратно ${product.minimumOrderQuantity}.`);
+    }
     if (nextQuantity > product.stock) {
       throw new ApiError(409, 'INSUFFICIENT_STOCK', 'Запрошенное количество превышает доступный остаток.');
     }
