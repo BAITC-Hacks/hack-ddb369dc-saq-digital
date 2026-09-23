@@ -12,26 +12,26 @@ If `NVIDIA_API_KEY` is also set in live mode, NVIDIA NIM may extract technical f
 
 ## Catalog format for the data owner
 
-The file is a JSON array. It accepts normalized demo products:
+The file is a JSON array. The data team's 40-SKU demo catalog uses this format:
 
 ```json
 [
   {
-    "sku": "DEMO-001",
-    "article": "DEMO-001",
-    "name": "Демонстрационный автомат 3P C16 10 kA",
+    "sku": "DEMO-MCB-003",
+    "name": "Автомат Demo Power 3P C16 15 kA",
+    "brand": "Demo Power",
     "poles": 3,
     "curve": "C",
     "amps": 16,
-    "breakingCapacityKa": 10,
-    "priceKzt": 12000,
-    "stock": 2,
-    "certificates": []
+    "breakingCapacity": 15,
+    "price": 7900,
+    "currency": "KZT",
+    "stock": 12
   }
 ]
 ```
 
-It also accepts full detail objects from the partner's `/api/products/detail?id=...` endpoint, with `id`, `article`, `name`, `price`, `quantity`, `properties`, and optional `stores`, `description`, `url`, `image`. The backend maps `article` to `sku`, `price` to `priceKzt`, and `quantity` to `stock`. An optional `certificates` array contains `{ "name": "...", "url": "https://..." }` entries when the data source has them. Never invent a certificate URL.
+The backend maps `breakingCapacity` to `breakingCapacityKa` and `price` to `priceKzt` in API responses. It also accepts full detail objects from the partner's `/api/products/detail?id=...` endpoint, with `id`, `article`, `name`, `price`, `quantity`, `properties`, and optional `stores`, `description`, `url`, `image`. For those, `article` becomes `sku`, `price` becomes `priceKzt`, and `quantity` becomes `stock`. An optional `certificates` array contains `{ "name": "...", "url": "https://..." }` entries when the data source has them. Never invent a certificate URL.
 
 Technical alternatives need verified `poles`, `curve`, `amps`, and `breakingCapacityKa`. The partner sample has conflicting current ratings in the name and properties; such a product is shown for article inquiries but excluded from automatic compatibility matching until corrected.
 
