@@ -1,58 +1,71 @@
-# EKT assistant API
+# EKT assistant backend contract
 
-This is the backend contract for the frontend and demo catalog. The API returns JSON. Prices are integer tenge. `breakingCapacityKa` is measured in kA.
+The backend API returns JSON. Prices are in tenge (`priceKzt`), electrical breaking capacity is in kA (`breakingCapacityKa`). This document is for the frontend and data owners.
 
-## Catalog
+## Starting the backend
 
-The backend reads `data/catalog.json` at startup. `CATALOG_PATH` can point to another JSON file. The file is an array of products:
+From `server/`, install dependencies without creating a lock file and run `npm run dev`. The default port and catalog location are in `server/config.json`; `PORT` and `CATALOG_PATH` override them. The data team owns the default `data/catalog.json` file. The server validates it at startup.
+
+`APP_MODE` defaults to offline. In `live` mode, set `EKT_API_USERNAME` and `EKT_API_PASSWORD` in the environment. For products with a partner `id`, the backend refreshes their details from the partner read API at startup. If a detail request fails, the local catalog entry remains available. The API URL is configured in `server/config.json` and may be overridden with `EKT_PRODUCT_DETAIL_URL`. Never put credentials in the repository.
+
+If `NVIDIA_API_KEY` is also set in live mode, NVIDIA NIM may extract technical filters when local parsing cannot understand a query. The response is strictly validated and can never supply a SKU, price, or stock. The adapter caches normalized requests and limits calls and output tokens using `server/config.json`. Without the key, or if extraction fails, the local parser remains available. Analog explanations are deterministic from catalog fields.
+
+## Catalog format for the data owner
+
+The file is a JSON array. It accepts normalized demo products:
 
 ```json
 [
   {
     "sku": "DEMO-001",
+    "article": "DEMO-001",
     "name": "Демонстрационный автомат 3P C16 10 kA",
     "poles": 3,
     "curve": "C",
     "amps": 16,
     "breakingCapacityKa": 10,
     "priceKzt": 12000,
-    "stock": 2
+    "stock": 2,
+    "certificates": []
   }
 ]
 ```
 
-`sku` must be unique. The price and stock in this example are synthetic; the data team will provide the demo catalog.
+It also accepts full detail objects from the partner's `/api/products/detail?id=...` endpoint, with `id`, `article`, `name`, `price`, `quantity`, `properties`, and optional `stores`, `description`, `url`, `image`. The backend maps `article` to `sku`, `price` to `priceKzt`, and `quantity` to `stock`. An optional `certificates` array contains `{ "name": "...", "url": "https://..." }` entries when the data source has them. Never invent a certificate URL.
 
-## POST /api/search
+Technical alternatives need verified `poles`, `curve`, `amps`, and `breakingCapacityKa`. The partner sample has conflicting current ratings in the name and properties; such a product is shown for article inquiries but excluded from automatic compatibility matching until corrected.
 
-Request: `{ "query": "Нужен автомат 3P C16, 10 kA, 8 штук" }`.
+## Session and cart
 
-Response:
+1. `POST /api/session` with an empty JSON object returns `{ "sessionId": "..." }` (HTTP 201).
+2. Store `sessionId` for the demo session and send it in the `X-Session-Id` header on cart requests. Every session has its own cart.
+3. `GET /api/cart` returns `{ "items": [], "totalPriceKzt": 0, "cartUrl": "/cart" }` before confirmation. The frontend should serve its cart screen at the configured `cartUrl`. Set `CART_URL` to another frontend route if needed.
+4. After the user explicitly presses the confirmation button, send `POST /api/cart` with `X-Session-Id` and this body:
+
+```json
+{ "sku": "DEMO-001", "quantity": 8, "confirmed": true, "confirmationId": "unique-id-for-this-confirmation" }
+```
+
+The response includes updated `items`, `totalPriceKzt`, and `cartUrl`. Each item includes `sku`, `name`, `quantity`, `unitPriceKzt`, and `lineTotalKzt`. Use a new `confirmationId` for each distinct confirmation and reuse it for retries. Repeated delivery cannot add twice; reusing an ID for a different SKU or quantity returns HTTP 409. Cart state is in server memory and resets on restart. The provided partner API has no cart mutation endpoint, so this is the prototype cart; linking to ekt.kz's cart would show unrelated state.
+
+## Chat search
+
+`POST /api/search` accepts `{ "query": "Нужен автомат 3P C16, 10 kA, 8 штук" }` and returns:
 
 ```json
 {
+  "intent": "specifications",
+  "answer": "Точного товара в нужном количестве нет. Найдены варианты по указанным техническим параметрам.",
   "filters": { "poles": 3, "curve": "C", "amps": 16, "breakingCapacityKa": 10, "quantity": 8 },
-  "exactMatch": { "product": { "sku": "...", "name": "...", "poles": 3, "curve": "C", "amps": 16, "breakingCapacityKa": 10, "priceKzt": 12000, "stock": 2 }, "canFulfill": false },
-  "alternatives": [{ "product": { "sku": "...", "name": "...", "poles": 3, "curve": "C", "amps": 16, "breakingCapacityKa": 15, "priceKzt": 14000, "stock": 10 }, "reason": "..." }]
+  "exactMatch": { "product": { "sku": "...", "name": "...", "priceKzt": 12000, "stock": 2 }, "canFulfill": false },
+  "alternatives": [{ "product": { "sku": "...", "name": "...", "priceKzt": 14000, "stock": 10 }, "reason": "..." }]
 }
 ```
 
-`exactMatch` is `null` if none exists. `alternatives` contains at most two products with the same poles, curve, and current rating, sufficient stock, and breaking capacity at least as high as requested. Search does not change the cart.
+`exactMatch` is `null` when absent. There are at most two alternatives. They have the same poles, curve, and current rating, at least the requested breaking capacity, and enough stock. Search never changes the cart.
 
-## GET /api/cart
+Send `X-Session-Id` with search requests to preserve the last discussed product for follow-up questions such as “А сертификат есть?”. Search also works without a session for single-turn inquiries.
 
-Returns `{ "items": [], "totalPriceKzt": 0 }` before the first confirmation.
+An inquiry containing an article from the local catalog returns `intent: "product"`, a product answer with price and stock, all available `properties`, certificates when provided, and alternatives when the item is unavailable and its technical ratings are complete. A purchase question about payment, delivery, or minimum batch returns `intent: "purchase_terms"`, an `answer`, and `sourceUrl` pointing to the [partner's published terms](https://ekt.kz/about/information/). A universal minimum batch is not stated there; the answer says so rather than guessing.
 
-## POST /api/cart
-
-Send only after the user presses **Confirm and add to cart**:
-
-```json
-{ "sku": "DEMO-001", "quantity": 8, "confirmed": true, "confirmationId": "unique-id-for-this-click" }
-```
-
-Returns `{ "items": [{ "sku": "...", "name": "...", "quantity": 8, "unitPriceKzt": 12000, "lineTotalKzt": 96000 }], "totalPriceKzt": 96000 }`.
-
-Use a new `confirmationId` for each distinct confirmation and reuse it on retries. Repeated requests with the same ID and payload do not add the product again. A reused ID with a different product or quantity returns HTTP 409. The cart is held in server memory and resets when the server restarts.
-
-Errors use `{ "error": { "code": "...", "message": "..." } }` with HTTP 400, 404, 409, or 422.
+Errors use `{ "error": { "code": "...", "message": "..." } }` and an appropriate HTTP status (400, 401, 404, 409, or 422).
