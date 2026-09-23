@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { createApp } from './app.js';
 import { loadCatalog, validateCatalog } from './catalog.js';
 import { PartnerClient, refreshCatalog } from './partner.js';
-import { NvidiaQueryParser } from './ai.js';
+import { OpenAIQueryParser } from './ai.js';
 
 const serverDirectory = fileURLToPath(new URL('..', import.meta.url));
 const configuration = JSON.parse(await readFile(new URL('../config.json', import.meta.url), 'utf8'));
@@ -24,13 +24,14 @@ const port = Number(process.env.PORT ?? configuration.port);
 if (!Number.isInteger(port) || port < 1 || port > 65535) {
   throw new Error('PORT must be an integer between 1 and 65535.');
 }
-const queryParser = process.env.APP_MODE === 'live' && process.env.NVIDIA_API_KEY
-  ? new NvidiaQueryParser({
-    url: process.env.NVIDIA_CHAT_COMPLETIONS_URL ?? configuration.nvidia.chatCompletionsUrl,
-    model: process.env.NVIDIA_MODEL ?? configuration.nvidia.model,
-    apiKey: process.env.NVIDIA_API_KEY,
-    maxOutputTokens: configuration.nvidia.maxOutputTokens,
-    maxCalls: configuration.nvidia.maxCalls,
+const queryParser = process.env.APP_MODE === 'live' && process.env.OPENAI_API_KEY
+  ? new OpenAIQueryParser({
+    url: process.env.OPENAI_RESPONSES_URL ?? configuration.openai.responsesUrl,
+    model: process.env.OPENAI_MODEL ?? configuration.openai.model,
+    apiKey: process.env.OPENAI_API_KEY,
+    maxOutputTokens: configuration.openai.maxOutputTokens,
+    maxCalls: configuration.openai.maxCalls,
+    timeoutMs: configuration.openai.timeoutMs,
   })
   : undefined;
 let staticDirectory = resolve(serverDirectory, process.env.FRONTEND_DIST_PATH ?? configuration.frontendDistPath ?? '../frontend/dist');

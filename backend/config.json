@@ -4,10 +4,11 @@
   "frontendDistPath": "../frontend/dist",
   "cartUrl": "/cart",
   "partnerDetailUrl": "https://ekt.kz/api/products/detail",
-  "nvidia": {
-    "chatCompletionsUrl": "https://integrate.api.nvidia.com/v1/chat/completions",
-    "model": "meta/llama-3.1-8b-instruct",
-    "maxOutputTokens": 180,
-    "maxCalls": 20
+  "openai": {
+    "responsesUrl": "https://api.openai.com/v1/responses",
+    "model": "gpt-4.1-mini",
+    "maxOutputTokens": 256,
+    "maxCalls": 20,
+    "timeoutMs": 10000
   }
 }

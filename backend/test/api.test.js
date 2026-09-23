@@ -5,6 +5,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../src/app.js';
+import { OpenAIQueryParser } from '../src/ai.js';
 import { loadCatalog } from '../src/catalog.js';
 import { fileURLToPath } from 'node:url';
 import { catalog } from './fixtures.js';
@@ -106,6 +107,55 @@ test('cart response includes the configured frontend cart route', async () => {
     assert.equal(result.body.cartUrl, '/cart');
     assert.equal(result.body.items[0].quantity, 1);
   }, { cartUrl: '/cart' });
+});
+
+test('OpenAI extraction searches catalog data without mutating the cart', async () => {
+  let calls = 0;
+  const queryParser = new OpenAIQueryParser({
+    url: 'https://example.org/responses', model: 'demo', apiKey: 'dummy',
+    fetcher: async () => {
+      calls += 1;
+      return { ok: true, json: async () => ({
+        status: 'completed',
+        output: [{ type: 'message', role: 'assistant', content: [{
+          type: 'output_text', text: JSON.stringify({ poles: 3, curve: 'C', amps: 16, breakingCapacityKa: 10, quantity: 8 }),
+        }] }],
+      }) };
+    },
+  });
+  await withServer(async (base) => {
+    const { body: { sessionId } } = await post(base, '/api/session', {});
+    await post(base, '/api/search', { query: '3P C16, 10 kA, 8 штук' }, sessionId);
+    assert.equal(calls, 0, 'Local parsing must not spend an API call');
+    const result = await post(base, '/api/search', {
+      query: 'Восемь трёхполюсных автоматов, кривая C, шестнадцать ампер, десять килоампер',
+    }, sessionId);
+    assert.equal(result.status, 200);
+    assert.equal(result.body.alternatives[0].product.sku, 'ALT-15');
+    assert.equal(result.body.filters.quantity, 8);
+    assert.equal(calls, 1);
+    assert.deepEqual(await getCart(base, sessionId), { items: [], totalPriceKzt: 0 });
+  }, { queryParser });
+});
+
+test('OpenAI outages preserve the local clarification response and existing cart', async () => {
+  const queryParser = new OpenAIQueryParser({
+    url: 'https://example.org/responses', model: 'demo', apiKey: 'dummy',
+    fetcher: async () => ({ ok: false, status: 503 }),
+  });
+  await withServer(async (base) => {
+    const { body: { sessionId } } = await post(base, '/api/session', {});
+    const { body: cart } = await post(base, '/api/cart', {
+      sku: 'EXACT', quantity: 1, confirmed: true, confirmationId: 'before-ai-failure',
+    }, sessionId);
+    const result = await post(base, '/api/search', { query: 'нужен автомат' }, sessionId);
+    assert.equal(result.status, 422);
+    assert.equal(result.body.error.code, 'MISSING_SPECIFICATIONS');
+    assert.deepEqual(await getCart(base, sessionId), cart);
+    const local = await post(base, '/api/search', { query: '3P C16, 10 kA, 8 штук' }, sessionId);
+    assert.equal(local.status, 200);
+    assert.equal(queryParser.calls, 1);
+  }, { queryParser });
 });
 
 test('team catalog supports all ten demo queries in one session and confirmed checkout', async () => {
