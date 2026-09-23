@@ -20,10 +20,10 @@ describe('EKT Match interface', () => {
     fireEvent.click(choices[1])
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
-    expect(screen.getByText('Пока пусто')).toBeInTheDocument()
+    expect(screen.getByText('Корзина пуста')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить и добавить' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить в корзину EKT' }))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(screen.getByRole('complementary', { name: 'Корзина' })).toHaveTextContent('EKT-SF-3P-C16-10K')
+    expect(screen.getByRole('complementary', { name: 'Корзина EKT.kz' })).toHaveTextContent('SafeLine')
   })
 })

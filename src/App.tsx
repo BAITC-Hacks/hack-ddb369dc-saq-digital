@@ -4,6 +4,7 @@ import {
   CheckCircle,
   CircleNotch,
   MagnifyingGlass,
+  List,
   Package,
   ShieldCheck,
   ShoppingCart,
@@ -103,26 +104,33 @@ function App() {
 
   return (
     <main className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#search" aria-label="EKT Match — к поиску">
+      <header className="site-header">
+        <a className="brand" href="#search" aria-label="Электрокомплект — к каталогу">
           <span className="brand-mark"><Sparkle size={18} weight="fill" aria-hidden="true" /></span>
-          <span>EKT <strong>Match</strong></span>
+          <span>ЭЛЕКТРО<strong>КОМПЛЕКТ</strong></span>
         </a>
-        <div className="topbar__status"><span /> Demo-каталог</div>
+        <div className="site-actions">
+          <span className="city-label">Астана</span>
+          <button className="catalog-button" type="button"><List size={18} weight="bold" aria-hidden="true" /> Каталог</button>
+          <label className="site-search" aria-label="Поиск по каталогу"><MagnifyingGlass size={18} aria-hidden="true" /><input placeholder="Поиск по каталогу" /></label>
+          <a className="header-cart" href="#cart"><ShoppingCart size={19} weight="duotone" aria-hidden="true" /> Корзина <b>{cartProduct ? 1 : 0}</b></a>
+        </div>
       </header>
 
-      <section className="intro" aria-labelledby="page-title">
-        <p className="eyebrow">Подбор электрооборудования</p>
-        <h1 id="page-title">Подберём позицию,<br />а не просто покажем поиск.</h1>
-        <p className="intro-copy">Опишите задачу своими словами. Ассистент проверит характеристики, наличие и предложит совместимую замену.</p>
+      <section className="catalog-context" aria-labelledby="page-title">
+        <p className="breadcrumbs">Каталог / Низковольтная аппаратура / Автоматические выключатели</p>
+        <div className="catalog-context__content">
+          <div><p className="eyebrow">Каталог EKT.kz</p><h1 id="page-title">Автоматические выключатели</h1><p className="intro-copy">Подберите позицию по характеристикам или спросите встроенного помощника EKT.</p></div>
+          <div className="catalog-facts"><span>В наличии</span><strong>1 248 товаров</strong></div>
+        </div>
       </section>
 
       <section className="workspace" id="search" aria-label="Подбор товара">
         <div className="search-panel">
           <div className="panel-heading">
             <div>
-              <p className="panel-kicker">Новый запрос</p>
-              <h2>Что нужно для объекта?</h2>
+              <p className="panel-kicker">AI-помощник EKT</p>
+              <h2>Помогу подобрать товар</h2>
             </div>
             <ShieldCheck size={27} weight="duotone" aria-label="Подтверждение требуется перед добавлением" />
           </div>
@@ -149,23 +157,23 @@ function App() {
               Найти позицию
             </button>
           </div>
-          <p className="helper-text">Товар не попадёт в корзину без вашего явного подтверждения.</p>
+          <p className="helper-text">Ассистент использует данные каталога EKT. Товар не попадёт в корзину без вашего явного подтверждения.</p>
         </div>
 
-        <aside className="cart-panel" aria-label="Корзина" aria-live="polite">
+        <aside className="cart-panel" id="cart" aria-label="Корзина EKT.kz" aria-live="polite">
           <div className="cart-panel__heading">
-            <div><p className="panel-kicker">Корзина</p><h2>К заказу</h2></div>
+            <div><p className="panel-kicker">EKT.kz</p><h2>Корзина</h2></div>
             <span className="cart-count">{cartProduct ? 1 : 0}</span>
           </div>
           {cartProduct ? (
             <div className="cart-item">
               <div className="cart-item__icon"><Package size={24} weight="duotone" aria-hidden="true" /></div>
-              <div><p>{cartProduct.sku}</p><strong>{cartProduct.name}</strong><span>8 шт. · {priceFormatter.format(cartProduct.price * 8)}</span></div>
+              <div><p>Добавлено в корзину EKT.kz</p><strong>{cartProduct.name}</strong><span>8 шт. · {priceFormatter.format(cartProduct.price * 8)}</span></div>
             </div>
           ) : (
             <div className="cart-empty">
               <ShoppingCart size={29} weight="duotone" aria-hidden="true" />
-              <p>Пока пусто</p>
+              <p>Корзина пуста</p>
               <span>Выберите товар из рекомендаций.</span>
             </div>
           )}
@@ -201,7 +209,7 @@ function App() {
             <div className="confirmation-meta"><span>Количество <b>8 шт.</b></span><span>Итого <b>{priceFormatter.format(selectedProduct.price * 8)}</b></span></div>
             <div className="modal-actions">
               <button className="ghost-button" type="button" onClick={() => setSelectedProduct(null)}>Отмена</button>
-              <button className="primary-button" type="button" onClick={addToCart}>Подтвердить и добавить</button>
+              <button className="primary-button" type="button" onClick={addToCart}>Добавить в корзину EKT</button>
             </div>
           </section>
         </div>
