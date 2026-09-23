@@ -16,13 +16,13 @@ The first import without a disk cache runs in the background and may take severa
 
 Without a usable catalog, `POST /api/session` and `GET /api/cart` work immediately. Purchase terms and basic greetings/help work locally. `POST /api/search` with `conversation: true` returns a normal conversation response with notice `CATALOG_LOADING` or `CATALOG_UNAVAILABLE` for product requests, without AI calls or invented availability. Classic product search, cart writes and uploads still return HTTP 503 (loading includes `Retry-After: 10`). Existing sessions can use products once import finishes. Responses from a ready partner search have optional `catalog: { source, loadedAt, cached, refreshing, stale }`; stale/refreshing responses also include a timestamp note in `answer`. Existing required fields remain unchanged. Repeated conversation answers are invalidated when the snapshot changes.
 
-This is a read-only partner integration; the cart does not reserve partner stock. Price/stock checks use the latest complete local snapshot, not an individual partner request at confirmation time. Previously accepted cart lines retain their price; new additions check current snapshot data. Deployments with several backend processes need coordinated shared catalog storage and refresh.
+This is a read-only partner integration; the cart does not reserve partner stock. Search uses the local catalog snapshot. Each new confirmed live cart addition fetches the individual partner detail to validate current price, stock and order multiple; successful confirmation retries do not call the partner again. See the cart contract below. Deployments with several backend processes need coordinated shared catalog storage and refresh.
 
 Frontend integration: use `catalog.source` for the catalog label, show import progress until `ready`, and offer retry for `CATALOG_LOADING`. The existing synthetic demo query only applies to the local catalog. No search/cart success response fields have been removed or renamed.
 
 If `OPENAI_API_KEY` is set in live mode, the OpenAI Responses API handles conversation or extracts technical filters when local parsing cannot understand a query. The default model is `gpt-4.1-mini`; `OPENAI_MODEL` and `OPENAI_RESPONSES_URL` override `backend/config.json`. Requests use [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs) and `store: false`. In the original search mode, missing specifications are returned as `null` and rejected locally, preserving the HTTP 422 clarification response. The optional conversation mode described below supports general site questions and follow-up clarification. Zod rejects extra fields such as SKU, price, or stock. Analog explanations and product selection still come from catalog data.
 
-The adapter caches successful normalized requests together with conversation context, shares in-flight requests, and limits calls, output tokens, and request time using `backend/config.json` (20 attempts per process, 768 output tokens, 15 seconds by default). Failed requests are removed from the cache and still count toward the limit; no automatic retries are made. Without the key, the local parser remains available. OpenAI credentials stay on the server. The previous `NVIDIA_*` settings have been replaced by `OPENAI_*`.
+The adapter shares in-flight requests and caches successful normalized requests with conversation context using hashed keys. `backend/config.json` → `openai` sets `maxCalls: 60`, `windowMs: 60000`, `maxConcurrent: 4`, `cacheTtlMs: 300000`, and `maxCacheEntries: 200`; chat output/timeout remain 768 tokens/15 seconds. Quota renews within a rolling window, without restarting the process, and is shared with attachments. Failed attempts consume quota; duplicated in-flight requests do not. `AI_CALL_LIMIT` is temporary and includes retry guidance in the chat answer. The adapter error has `retryAfterSeconds`; upload errors expose it as an optional field. There are no automatic retries. Direct constructor callers that omit `maxCalls` retain its fallback of 20 attempts per window. Without the key, local parsing remains available; credentials stay on the server.
 
 ## Catalog format for the data owner
 
@@ -53,7 +53,7 @@ Technical alternatives need verified `poles`, `curve`, `amps`, and `breakingCapa
 
 ## Health
 
-`GET /api/health` returns HTTP 200 with `{ "status": "ok" }` after the catalog is loaded and the server is listening. It requires no session, does not change cart state, and does not contact OpenAI or the partner API. Docker uses it for readiness. It does not assert external service availability.
+`GET /api/health` returns HTTP 200 once the server is listening, including while the catalog loads. Inspect `catalog.status` for product readiness. It requires no session, does not change cart state, and does not contact OpenAI or the partner API. It does not assert external service availability.
 
 ## Session and cart
 
@@ -63,10 +63,23 @@ Technical alternatives need verified `poles`, `curve`, `amps`, and `breakingCapa
 4. After the user explicitly presses the confirmation button, send `POST /api/cart` with `X-Session-Id` and this body:
 
 ```json
-{ "sku": "DEMO-MCB-003", "quantity": 8, "confirmed": true, "confirmationId": "unique-id-for-this-confirmation" }
+{ "sku": "DEMO-MCB-003", "quantity": 8, "confirmed": true, "confirmationId": "unique-id-for-this-confirmation", "expectedUnitPriceKzt": 7900 }
 ```
 
 The response includes updated `items`, `totalPriceKzt`, and `cartUrl`. Each item includes `sku`, `name`, `quantity`, `unitPriceKzt`, and `lineTotalKzt`. Use a new `confirmationId` for each distinct confirmation and reuse it for retries. Repeated delivery cannot add twice; reusing an ID for a different SKU or quantity returns HTTP 409. Cart state is in server memory and resets on restart. The provided partner API has no cart mutation endpoint, so this is the prototype cart; linking to ekt.kz's cart would show unrelated state.
+
+`expectedUnitPriceKzt` is optional for compatibility; the current frontend sends the price displayed on the confirmed card. Always send this value in new integrations, including upload results. Legacy clients fall back to the latest quote shown in their session, then the catalog price; that fallback cannot bind an older card to its displayed price across multiple tabs.
+
+In live partner mode, cart confirmations are serialized per session. Before a new mutation, `PartnerClient.detail` retrieves current data and validates SKU/ID, displayed price, available quantity (including this session's existing cart quantity), and order multiple. The refreshed detail becomes available for subsequent search. Errors leave the cart and confirmation record unchanged:
+
+| HTTP | Code | Client action |
+|---|---|---|
+| 503 | `PRODUCT_VERIFICATION_UNAVAILABLE` | Retry later; the current partner price/stock could not be verified |
+| 409 | `PRODUCT_PRICE_CHANGED` | Search the SKU again, show the fresh price, obtain a new confirmation |
+| 409 | `PRODUCT_CHANGED` | Search and select the product again; SKU/ID no longer matches |
+| 409 | `INSUFFICIENT_STOCK` / `INVALID_ORDER_MULTIPLE` | Correct the quantity and confirm again |
+
+Retries of an already successful `confirmationId` return the cart without a second partner request or mutation. Offline mode retains local catalog validation. No reservation or real partner checkout is performed.
 
 ## Chat search
 
@@ -76,7 +89,7 @@ Conversational responses use the same fields, with `intent: "conversation"`, a t
 
 For a partial technical selection, the backend remembers known fields and asks only for missing fields. Once all fields are valid, deterministic catalog search returns the existing `specifications` response. Model-generated search text does not replace catalog prices or results. Immediate retries of the same successful question do not duplicate history or spend another call. State and history are isolated by `X-Session-Id` and reset with the backend process. Conversational messages are limited to 4000 characters (`QUERY_TOO_LONG`, HTTP 400).
 
-If OpenAI is disabled, unavailable, or its process call limit is exhausted, the frontend receives a readable fallback reply with optional `notice: "AI_OFFLINE" | "AI_UNAVAILABLE" | "AI_CALL_LIMIT"`. Local article lookup, full specification queries, and purchase terms continue to work. Logs contain only a failure category and HTTP status when available, never the API key or provider response body.
+If OpenAI is disabled, unavailable, or its temporary window/concurrency limit is reached, the frontend receives a readable fallback reply with optional `notice: "AI_OFFLINE" | "AI_UNAVAILABLE" | "AI_CALL_LIMIT"`. Local article lookup, full specification queries, and purchase terms continue to work. Logs contain only a failure category and HTTP status when available, never the API key or provider response body.
 
 `POST /api/search` accepts `{ "query": "Нужен автомат 3P C16, 10 kA, 8 штук" }` and returns:
 
@@ -90,7 +103,9 @@ If OpenAI is disabled, unavailable, or its process call limit is exhausted, the 
 }
 ```
 
-`exactMatch` is `null` when absent. There are at most two alternatives. They have the same poles, curve, and current rating, at least the requested breaking capacity, and enough stock. Search never changes the cart.
+`exactMatch` is `null` when absent. There are at most two breaker alternatives. They have the same poles, curve, and current rating, at least the requested breaking capacity, and enough stock. Another SKU with identical ratings is eligible; the unavailable target SKU is excluded. Each reason explains the comparison and calls for checking other compatibility parameters. Search never changes the cart.
+
+Lamp, luminaire and cable requests use category-specific clarification and catalog candidates rather than breaker questions. Known parameters are retained within the category; changing category clears unrelated breaker filters. Candidates match the available stated category parameters and stock, but are not a guarantee of interchangeability: review the reason, dimensions, mounting and sale unit. Their existing `alternatives` shape remains `{ product, reason }`; `filters` may be `null`, so use top-level `quantity`. Further requests for another option exclude already offered candidates while options remain.
 
 Send `X-Session-Id` with search requests to preserve the last discussed product for follow-up questions such as “А сертификат есть?”. Search also works without a session for single-turn inquiries.
 
@@ -99,3 +114,9 @@ An inquiry containing an article from the local catalog returns `intent: "produc
 Errors use `{ "error": { "code": "...", "message": "..." } }` and an appropriate HTTP status (400, 401, 404, 409, or 422).
 
 Product inquiries also return a top-level `quantity` alongside the existing fields. This preserves the requested quantity when `filters` is `null` because technical specifications are incomplete. The frontend uses it first, then `filters.quantity` for specification searches. A new specification query starts a fresh search rather than reusing the previous product from the session.
+
+## Payment data and verification status
+
+Detected payment data in search text is rejected with HTTP 400 `PAYMENT_DATA_NOT_ALLOWED` before entering session history or the AI request. Detection covers card numbers/IBAN, labelled CVV/CVC, PIN, payment codes, card expiry and bank passwords. Existing user history and model-generated text are sanitized; trusted catalog identifiers are retained. This is heuristic detection, not a guarantee against every obfuscation. Upload filenames are checked and extracted text is sanitized, but original document/image bytes are sent to the provider for recognition: users must not upload payment documents.
+
+The latest changes to alternatives/categories, live cart verification, payment-data handling and AI rate limits have **not** been tested or built. Checks await separate user approval; previous test results do not validate these changes.

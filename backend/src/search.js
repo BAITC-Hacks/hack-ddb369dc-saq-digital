@@ -170,9 +170,10 @@ export function canFulfill(product, quantity) {
   return Number.isSafeInteger(quantity) && quantity > 0 && product.stock >= quantity && quantity % (product.minimumOrderQuantity ?? 1) === 0;
 }
 
-export function searchCatalog(catalog, filters) {
+export function searchCatalog(catalog, filters, options = {}) {
   if (!Number.isSafeInteger(filters.quantity) || filters.quantity <= 0) throw new ApiError(422, 'INVALID_QUANTITY', 'Количество должно быть положительным целым числом.');
   const sameRating = catalog.filter((product) =>
+    !product.technicalIssue &&
     product.poles === filters.poles &&
     product.curve === filters.curve &&
     product.amps === filters.amps &&
@@ -180,10 +181,10 @@ export function searchCatalog(catalog, filters) {
     (filters.maxPriceKzt === undefined || product.priceKzt <= filters.maxPriceKzt),
   );
   const exact = sameRating
-    .filter((product) => product.breakingCapacityKa === filters.breakingCapacityKa)
+    .filter((product) => product.breakingCapacityKa === filters.breakingCapacityKa && (!options.targetSku || product.sku === options.targetSku))
     .sort((left, right) => Number(canFulfill(right, filters.quantity)) - Number(canFulfill(left, filters.quantity)) || left.priceKzt - right.priceKzt)[0] ?? null;
   const alternatives = sameRating
-    .filter((product) => product.breakingCapacityKa > filters.breakingCapacityKa && canFulfill(product, filters.quantity))
+    .filter((product) => product.sku !== (options.targetSku ?? exact?.sku) && !options.excludedSkus?.includes(product.sku) && product.breakingCapacityKa >= filters.breakingCapacityKa && canFulfill(product, filters.quantity))
     .sort((left, right) => left.breakingCapacityKa - right.breakingCapacityKa || left.priceKzt - right.priceKzt)
     .slice(0, 2)
     .map((product) => ({
@@ -194,6 +195,6 @@ export function searchCatalog(catalog, filters) {
   return {
     filters,
     exactMatch: exact && { product: exact, canFulfill: canFulfill(exact, filters.quantity) },
-    alternatives: exact && canFulfill(exact, filters.quantity) ? [] : alternatives,
+    alternatives: exact && canFulfill(exact, filters.quantity) && !options.includeAlternatives ? [] : alternatives,
   };
 }

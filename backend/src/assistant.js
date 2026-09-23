@@ -1,6 +1,8 @@
 import { canFulfill, parsePartialQuery, parseQuantity, parseQuery, parseRestrictions, searchCatalog } from './search.js';
 import { ApiError } from './errors.js';
 import configuration from '../config.json' with { type: 'json' };
+import { categoryCandidates, categoryClarification, categoryParameters, productKind, queryKind } from './product-kind.js';
+import { assertNoPaymentData, redactPaymentData, sanitizeConversation } from './privacy.js';
 
 function matchingProducts(catalog, query) {
   const normalized = query.toLocaleLowerCase('ru');
@@ -108,7 +110,12 @@ function termsAnswer(query, terms) {
   return sections.length ? sections.join(' ') : null;
 }
 
+function requestedQuantity(query, fallback = 1) {
+  return parseQuantity(query) ?? fallback;
+}
+
 export function answerQuery(catalog, query, terms, context, filtersOverride) {
+  assertNoPaymentData(query);
   const termsText = termsAnswer(query, terms);
   const mentioned = matchingProducts(catalog, query);
   const specified = parsePartialQuery(query);
@@ -118,23 +125,44 @@ export function answerQuery(catalog, query, terms, context, filtersOverride) {
     return { intent: 'conversation', answer: mentioned.map((item) => `${item.sku}: ${productAnswer(item, 1)}`).join(' '), filters: null, exactMatch: null, alternatives: [] };
   }
   const specifiesProduct = Object.entries(specified).some(([key, value]) => key !== 'quantity' && value !== null) || newSelection.test(query);
-  const product = mentioned[0] ?? (
-    !specifiesProduct && context?.lastSku && /налич|сертификат|цен|сколько\s+стоит|описани|шт\.?|штук/i.test(query)
-      ? catalog.find((item) => item.sku === context.lastSku)
+  const explicitKind = queryKind(query);
+  const asksAlternative = /аналог|замен|друг(?:ое|ой|ую|ие|ого)|похож|подбери|подберите/iu.test(query);
+  const categoryFollowUp = Object.keys(categoryParameters(query, context?.lastCategory)).length > 0;
+  const previous = context?.lastSku ? catalog.find((item) => item.sku === context.lastSku) : null;
+  const sameKind = !explicitKind || !previous || explicitKind === productKind(previous);
+  const identified = mentioned[0];
+  const product = identified ?? (
+    !specifiesProduct && !categoryFollowUp && sameKind && previous && (asksAlternative || /налич|сертификат|цен|характеристик|сколько|описани|шт\.?|штук/i.test(query))
+      ? previous
       : null
   );
   if (product) {
-    const explicitQuantity = parseQuantity(query);
-    const quantity = explicitQuantity ?? (mentioned.length ? 1 : context?.lastQuantity ?? 1);
-    if (context) { context.lastSku = product.sku; context.lastQuantity = quantity; }
-    const filters = product.poles && product.curve && product.amps && product.breakingCapacityKa
+    const quantity = requestedQuantity(query, product.sku === previous?.sku ? context?.lastQuantity ?? 1 : 1);
+    const kind = productKind(product);
+    const alreadyShown = context?.lastCategory === kind && (!identified || identified.sku === previous?.sku) ? context?.offeredSkus ?? [] : [];
+    if (context) {
+      context.lastSku = product.sku;
+      context.lastCategory = kind;
+      context.categoryParameters = null;
+      context.lastQuantity = quantity;
+    }
+    const filters = !product.technicalIssue && kind === 'breaker' && product.poles && product.curve && product.amps && product.breakingCapacityKa
       ? { poles: product.poles, curve: product.curve, amps: product.amps, breakingCapacityKa: product.breakingCapacityKa, quantity }
       : null;
-    const alternatives = filters && !canFulfill(product, quantity) ? searchCatalog(catalog, filters).alternatives : [];
+    const seekAlternatives = !canFulfill(product, quantity) || asksAlternative;
+    const alternatives = !seekAlternatives ? [] : filters
+      ? searchCatalog(catalog, filters, { targetSku: product.sku, includeAlternatives: asksAlternative, excludedSkus: asksAlternative ? alreadyShown : [] }).alternatives
+      : ['lamp', 'luminaire', 'cable'].includes(kind)
+        ? categoryCandidates(catalog, kind, query, quantity, product, {}, asksAlternative ? alreadyShown : []).alternatives
+        : [];
+    if (context) context.offeredSkus = [...new Set([...(asksAlternative ? alreadyShown : []), ...alternatives.map((item) => item.product.sku)])].slice(-100);
+    const extra = alternatives.length
+      ? ' Есть кандидаты по данным каталога; проверьте указанные параметры и совместимость перед покупкой.'
+      : seekAlternatives && !filters ? ` ${categoryClarification(kind)}` : '';
     return {
       intent: 'product',
       quantity,
-      answer: `${productAnswer(product, quantity)}${alternatives.length ? ' Есть варианты по указанным техническим параметрам.' : ''}${termsText ? ` ${termsText}` : ''}`,
+      answer: `${productAnswer(product, quantity)}${extra}${termsText ? ` ${termsText}` : ''}`,
       ...(termsText && { sourceUrl: terms.sourceUrl }),
       filters,
       exactMatch: { product, canFulfill: canFulfill(product, quantity) },
@@ -146,9 +174,35 @@ export function answerQuery(catalog, query, terms, context, filtersOverride) {
     return { intent: 'purchase_terms', answer: termsText, sourceUrl: terms.sourceUrl, filters: null, exactMatch: null, alternatives: [] };
   }
 
+  const category = explicitKind ?? ((asksAlternative || categoryFollowUp || /\d+\s*(?:шт|штук)/iu.test(query)) ? context?.lastCategory : null);
+  if (['lamp', 'luminaire', 'cable'].includes(category)) {
+    const quantity = requestedQuantity(query, context?.lastCategory === category ? context.lastQuantity ?? 1 : 1);
+    const knownParameters = context?.lastCategory === category ? context.categoryParameters ?? {} : {};
+    const target = asksAlternative && categoryFollowUp && previous && productKind(previous) === category ? previous : undefined;
+    const alreadyShown = context?.lastCategory === category && asksAlternative ? context.offeredSkus ?? [] : [];
+    const { alternatives, hasParameters, parameters } = categoryCandidates(catalog, category, query, quantity, target, knownParameters, alreadyShown);
+    if (context) {
+      context.lastCategory = category;
+      context.lastSku = alternatives.length === 1 ? alternatives[0].product.sku : null;
+      context.categoryParameters = parameters;
+      context.lastQuantity = quantity;
+      context.offeredSkus = [...new Set([...alreadyShown, ...alternatives.map((item) => item.product.sku)])].slice(-100);
+    }
+    const answer = alternatives.length
+      ? `Найдены кандидаты ${hasParameters ? 'по указанным параметрам' : 'в этой категории'} из доступного каталога. Требуется проверка совместимости перед покупкой.`
+      : 'В доступном каталоге не найдены позиции с подтверждёнными указанными параметрами и нужным остатком.';
+    return { intent: 'specifications', quantity, answer: `${answer} ${categoryClarification(category)}`, filters: null, exactMatch: null, alternatives };
+  }
+
   const filters = filtersOverride ? { ...filtersOverride, ...parseRestrictions(query, catalog) } : { ...parseQuery(query), ...parseRestrictions(query, catalog) };
   const result = searchCatalog(catalog, filters);
-  if (context) { context.lastSku = result.exactMatch?.product.sku ?? null; context.lastQuantity = filters.quantity; }
+  if (context) {
+    context.lastCategory = 'breaker';
+    context.categoryParameters = null;
+    context.lastQuantity = filters.quantity;
+    context.offeredSkus = result.alternatives.map((item) => item.product.sku);
+    context.lastSku = result.exactMatch?.product.sku ?? null;
+  }
   const answer = result.exactMatch?.canFulfill
     ? 'Точный товар найден и есть в нужном количестве.'
     : result.alternatives.length
@@ -163,6 +217,7 @@ function conversationalAnswer(answer, extra = {}) {
 
 export function answerWithoutCatalog(query, terms, loading) {
   if (query.length > 4000) throw new ApiError(400, 'QUERY_TOO_LONG', 'Сократите сообщение до 4000 символов.');
+  assertNoPaymentData(query);
   const termsText = termsAnswer(query, terms);
   if (termsText) {
     return { intent: 'purchase_terms', answer: termsText, sourceUrl: terms.sourceUrl, filters: null, exactMatch: null, alternatives: [] };
@@ -193,13 +248,14 @@ function groundedFilters(query, replyFilters, knownFilters) {
 const inFlight = new WeakMap();
 
 function remember(context, query, result, retainHistory = true) {
+  result = { ...result, answer: redactPaymentData(result.answer) };
   if (retainHistory) {
-    context.history = [...(context.history ?? []),
-      { role: 'user', content: query },
+    context.history = redactPaymentData([...(context.history ?? []),
+      { role: 'user', content: redactPaymentData(query) },
       { role: 'assistant', content: result.answer },
-    ].slice(-8);
+    ].slice(-8));
   }
-  context.lastConversation = result.notice ? null : { query: query.trim(), result };
+  context.lastConversation = result.notice ? null : { query: redactPaymentData(query.trim()), result };
   return result;
 }
 
@@ -215,10 +271,15 @@ function conversationCatalog(catalog, query, context) {
 
 async function processConversation(catalog, query, terms, context, queryParser) {
   if (query.length > 4000) throw new ApiError(400, 'QUERY_TOO_LONG', 'Сократите сообщение до 4000 символов.');
+  assertNoPaymentData(query);
+  sanitizeConversation(context);
   if (newSelection.test(query)) {
     context.pendingFilters = null;
     context.lastSku = null;
     context.lastQuantity = null;
+    context.lastCategory = null;
+    context.categoryParameters = null;
+    context.offeredSkus = [];
     context.history = [];
     context.lastConversation = null;
   }
@@ -230,11 +291,13 @@ async function processConversation(catalog, query, terms, context, queryParser) 
     return remember(context, query, conversationalAnswer(phrases[language(query)].technical, { sourceUrl: configuration.assistantReference?.tripCurvesUrl }));
   }
   if (/личн\w*\s+кабинет|регистр|account|тіркел/iu.test(query)) return remember(context, query, conversationalAnswer(phrases[language(query)].account));
-  if (context.lastConversation?.query === query.trim()) return context.lastConversation.result;
+  const anotherSelection = /аналог|замен|друг(?:ое|ой|ую|ие|ого)|похож/iu.test(query);
+  if (context.lastConversation?.query === query.trim() && !anotherSelection) return context.lastConversation.result;
   let clarification;
   try {
     // A pending selection must not be interpreted as a question about the previous SKU.
-    const localContext = context.pendingFilters ? undefined : context;
+    const explicitKind = queryKind(query);
+    const localContext = context.pendingFilters && (!explicitKind || explicitKind === 'breaker') ? undefined : context;
     const result = answerQuery(catalog, query, terms, localContext);
     if (result.intent !== 'purchase_terms') {
       context.pendingFilters = null;
@@ -250,6 +313,11 @@ async function processConversation(catalog, query, terms, context, queryParser) 
     clarification = error.message;
   }
 
+  const previousProduct = catalog.find((product) => product.sku === context.lastSku);
+  const suppliedRatings = Object.entries(parsePartialQuery(query)).some(([key, value]) => key !== 'quantity' && value !== null);
+  const kind = queryKind(query) ?? (context.pendingFilters || suppliedRatings ? 'breaker' : productKind(previousProduct ?? { name: '' }) ?? context.lastCategory);
+  if (kind !== 'breaker') clarification = categoryClarification(kind);
+
   if (queryParser) {
     try {
       const reply = await queryParser.reply(query, {
@@ -261,12 +329,19 @@ async function processConversation(catalog, query, terms, context, queryParser) 
         currentProduct: context.lastSku ?? null,
         cart: context.cart ?? null,
         knownFilters: context.pendingFilters ?? null,
+        productCategory: kind ?? null,
         history: context.history ?? [],
       });
       if (reply.kind === 'out_of_scope') {
         return remember(context, query, conversationalAnswer('Я помогаю с товарами и возможностями этого сайта: ассортиментом, характеристиками, наличием, ценами, корзиной, оплатой и доставкой. Какой вопрос по магазину вас интересует?'), false);
       }
       if (reply.kind === 'search') {
+        if (kind !== 'breaker') {
+          context.pendingFilters = null;
+          return remember(context, query, conversationalAnswer(categoryClarification(kind)));
+        }
+        context.lastCategory = 'breaker';
+        context.categoryParameters = null;
         const filters = groundedFilters(query, reply.filters, context.pendingFilters);
         if (Object.values(filters).every((value) => value !== null)) {
           const result = answerQuery(catalog, query, terms, undefined, filters);
@@ -288,7 +363,7 @@ async function processConversation(catalog, query, terms, context, queryParser) 
       const reason = ['ZodError', 'SyntaxError', 'TimeoutError', 'TypeError'].includes(error.name) ? error.name : 'Invalid response';
       console.warn(`Assistant request failed: ${code} (${Number.isInteger(error.status) ? `HTTP ${error.status}` : reason}).`);
       const message = code === 'AI_CALL_LIMIT' || code === 'AI_RATE_LIMIT'
-        ? 'Лимит AI-запросов временно исчерпан. Попробуйте позже. Локальный поиск по артикулу и характеристикам продолжает работать.'
+        ? `Слишком много AI-запросов. Повторите${Number.isFinite(error.retryAfterSeconds) ? ` через ${Math.max(1, Math.ceil(error.retryAfterSeconds))} сек.` : ' позже.'} Поиск по артикулу и характеристикам продолжает работать.`
         : 'Не удалось получить ответ AI-помощника. Попробуйте ещё раз или воспользуйтесь локальным поиском по артикулу и характеристикам.';
       return remember(context, query, conversationalAnswer(`${message} ${clarification}`, { notice: code }));
     }

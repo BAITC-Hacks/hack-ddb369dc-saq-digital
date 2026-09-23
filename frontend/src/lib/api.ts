@@ -228,9 +228,9 @@ export async function getCart(): Promise<CartSnapshot> {
   return sessionRequestFor('/cart', parseCart)
 }
 
-export async function addToCart(sku: string, quantity: number, confirmationId: string): Promise<CartSnapshot> {
+export async function addToCart(sku: string, quantity: number, confirmationId: string, expectedUnitPriceKzt?: number): Promise<CartSnapshot> {
   let writeSession: string | undefined
-  const cart = await sessionRequestFor('/cart', parseCart, { sku, quantity, confirmed: true, confirmationId }, (currentSession) => {
+  const cart = await sessionRequestFor('/cart', parseCart, { sku, quantity, confirmed: true, confirmationId, ...(expectedUnitPriceKzt !== undefined && { expectedUnitPriceKzt }) }, (currentSession) => {
     writeSession = currentSession
     savePendingConfirmation(currentSession, sku, quantity, confirmationId)
   })

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { ApiError } from './errors.js';
 import { attachmentSchema, matchAttachment, uploadDefaults, uploadFormats } from './attachments.js';
+import { assertNoPaymentData, redactPaymentData } from './privacy.js';
 
 export class Uploads {
   constructor(catalog, processor, options = {}) {
@@ -28,6 +29,7 @@ export class Uploads {
   }
 
   submit(sessionId, { requestId, file }) {
+    assertNoPaymentData(file.name);
     const key = JSON.stringify([sessionId, requestId]);
     const fingerprint = createHash('sha256').update(JSON.stringify([file.name, file.mimeType])).update(file.bytes).digest('hex');
     const previous = this.jobs.get(this.requests.get(key));
@@ -110,7 +112,7 @@ export class Uploads {
         interrupted,
       ]);
       if (!this.jobs.has(job.uploadId)) return;
-      const extraction = attachmentSchema(this.options.maxItems).parse(result);
+      const extraction = redactPaymentData(attachmentSchema(this.options.maxItems).parse(result));
       job.items = matchAttachment(extraction, this.catalog);
       job.warnings = extraction.warnings;
       job.truncated = extraction.truncated;
@@ -120,7 +122,9 @@ export class Uploads {
       const code = error?.code === 'AI_CALL_LIMIT' ? 'AI_CALL_LIMIT'
         : error?.code === 'UPLOAD_TIMEOUT' || error?.name === 'TimeoutError' ? 'UPLOAD_TIMEOUT' : 'UPLOAD_PROCESSING_FAILED';
       job.status = 'failed';
-      job.error = { code, message: code === 'AI_CALL_LIMIT' ? 'Лимит распознавания исчерпан.'
+      const retryAfterSeconds = code === 'AI_CALL_LIMIT' && Number.isFinite(error.retryAfterSeconds)
+        ? Math.max(1, Math.ceil(error.retryAfterSeconds)) : undefined;
+      job.error = { code, ...(retryAfterSeconds && { retryAfterSeconds }), message: code === 'AI_CALL_LIMIT' ? `Распознавание временно занято. Повторите${retryAfterSeconds ? ` через ${retryAfterSeconds} сек.` : ' позже.'}`
         : code === 'UPLOAD_TIMEOUT' ? 'Истекло время распознавания. Попробуйте файл меньшего размера.'
           : 'Не удалось распознать файл. Проверьте содержимое и отсутствие пароля.' };
     } finally {

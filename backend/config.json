@@ -42,9 +42,11 @@
     "responsesUrl": "https://api.openai.com/v1/responses",
     "model": "gpt-4.1-mini",
     "maxOutputTokens": 768,
-    "maxCalls": 20,
-    "budgetWindowMs": 60000,
-    "maxCacheEntries": 256,
+    "maxCalls": 60,
+    "windowMs": 60000,
+    "maxConcurrent": 4,
+    "cacheTtlMs": 300000,
+    "maxCacheEntries": 200,
     "timeoutMs": 15000
   }
 }

@@ -5,6 +5,7 @@ import { answerConversation, answerQuery, answerWithoutCatalog } from './assista
 import { Sessions } from './sessions.js';
 import { parseUpload } from './attachments.js';
 import { Uploads } from './uploads.js';
+import { assertNoPaymentData, redactPaymentData, sanitizeConversation } from './privacy.js';
 
 const searchBody = z.strictObject({ query: z.string().trim().min(1).max(4000), conversation: z.boolean().optional() });
 const cartBody = z.strictObject({
@@ -12,6 +13,7 @@ const cartBody = z.strictObject({
   quantity: z.number().int().positive(),
   confirmed: z.literal(true),
   confirmationId: z.string().min(1).max(256),
+  expectedUnitPriceKzt: z.number().nonnegative().optional(),
 });
 
 function parseBody(schema, body) {
@@ -79,6 +81,7 @@ export function createApp(catalog, options = {}) {
   }
 
   const uploads = new Uploads(catalog, options.queryParser, options.uploads);
+  let productRevision = 0;
   app.use((request, response, next) => {
     response.set('Access-Control-Allow-Origin', '*');
     response.set('Access-Control-Allow-Headers', 'Content-Type, X-Session-Id');
@@ -101,7 +104,13 @@ export function createApp(catalog, options = {}) {
     } });
   };
 
-  const catalogResponse = (result, state) => {
+  const catalogResponse = (result, state, sessionId) => {
+    result = { ...result, answer: redactPaymentData(result.answer) };
+    if (sessionId) {
+      const cart = sessions.cart(sessionId);
+      if (result.exactMatch) cart.rememberQuote(result.exactMatch.product);
+      for (const alternative of result.alternatives ?? []) cart.rememberQuote(alternative.product);
+    }
     if (state?.source !== 'partner' || state.status !== 'ready') return result;
     const { loadedAt, cached = false, refreshing = false, stale = false } = state;
     const note = (stale || refreshing) && loadedAt
@@ -112,6 +121,7 @@ export function createApp(catalog, options = {}) {
 
   app.post('/api/search', async (request, response) => {
     const { query, conversation } = parseBody(searchBody, request.body);
+    assertNoPaymentData(query);
     const sessionId = request.get('X-Session-Id');
     const context = sessionId ? sessions.context(sessionId) : undefined;
     if (context) context.cart = sessions.cart(sessionId).snapshot();
@@ -122,20 +132,22 @@ export function createApp(catalog, options = {}) {
       if (conversation || result.intent === 'purchase_terms') return response.json(result);
       return requireCatalog(request, response, () => {});
     }
-    if (context && context.catalogRevision !== state?.loadedAt) {
+    const revision = `${state?.loadedAt ?? ''}:${productRevision}`;
+    if (context && context.catalogRevision !== revision) {
       context.lastConversation = null;
-      context.catalogRevision = state?.loadedAt;
+      context.catalogRevision = revision;
     }
+    sanitizeConversation(context);
     if (conversation) {
-      return response.json(catalogResponse(await answerConversation(catalog, query, options.purchaseTerms, context, queryParser), state));
+      return response.json(catalogResponse(await answerConversation(catalog, query, options.purchaseTerms, context, queryParser), state, sessionId));
     }
     try {
-      response.json(catalogResponse(answerQuery(catalog, query, options.purchaseTerms, context), state));
+      response.json(catalogResponse(answerQuery(catalog, query, options.purchaseTerms, context), state, sessionId));
     } catch (error) {
       if (error.code !== 'MISSING_SPECIFICATIONS' || !queryParser?.extract) throw error;
       try {
         const filters = await queryParser.extract(query);
-        response.json(catalogResponse(answerQuery(catalog, query, options.purchaseTerms, context, filters), state));
+        response.json(catalogResponse(answerQuery(catalog, query, options.purchaseTerms, context, filters), state, sessionId));
       } catch (aiError) {
         if (aiError.code === 'AI_RATE_LIMIT' || aiError.code === 'AI_CALL_LIMIT') {
           throw new ApiError(429, aiError.code, 'Лимит запросов к помощнику временно исчерпан. Повторите попытку позже.');
@@ -166,7 +178,13 @@ export function createApp(catalog, options = {}) {
   });
 
   app.get('/api/uploads/:uploadId', requireCatalog, requireUploadSession, (request, response) => {
-    response.json(uploads.get(request.get('X-Session-Id'), request.params.uploadId));
+    const sessionId = request.get('X-Session-Id');
+    const result = uploads.get(sessionId, request.params.uploadId);
+    if (result.status === 'completed') {
+      const cart = sessions.cart(sessionId);
+      for (const item of result.items) for (const candidate of item.candidates) cart.rememberQuote(candidate.product);
+    }
+    response.json(result);
   });
 
   app.delete('/api/uploads/:uploadId', requireCatalog, requireUploadSession, (request, response) => {
@@ -178,8 +196,26 @@ export function createApp(catalog, options = {}) {
     response.json({ ...sessions.cart(request.get('X-Session-Id')).snapshot(), cartUrl: options.cartUrl });
   });
 
-  app.post('/api/cart', requireCatalog, (request, response) => {
-    response.json({ ...sessions.cart(request.get('X-Session-Id')).add(parseBody(cartBody, request.body)), cartUrl: options.cartUrl });
+  app.post('/api/cart', requireCatalog, async (request, response) => {
+    const input = parseBody(cartBody, request.body);
+    assertNoPaymentData(input.confirmationId);
+    const cart = sessions.cart(request.get('X-Session-Id'));
+    const result = options.partnerClient ? await cart.addVerified(input, async (product) => {
+      if (!product.id) throw new ApiError(503, 'PRODUCT_VERIFICATION_UNAVAILABLE', 'Не удалось проверить товар у поставщика. Повторите запрос позже.');
+      let fresh;
+      try {
+        fresh = await options.partnerClient.detail(product.id);
+      } catch {
+        throw new ApiError(503, 'PRODUCT_VERIFICATION_UNAVAILABLE', 'Не удалось проверить актуальную цену и остаток. Корзина не изменена. Повторите запрос позже.');
+      }
+      if (fresh.sku === product.sku && fresh.id === product.id) {
+        const index = catalog.findIndex((item) => item.sku === product.sku);
+        if (index !== -1) catalog[index] = fresh;
+        productRevision += 1;
+      }
+      return fresh;
+    }) : cart.add(input);
+    response.json({ ...result, cartUrl: options.cartUrl });
   });
 
   app.use('/api', (_request, response) => {
@@ -211,7 +247,7 @@ export function createApp(catalog, options = {}) {
     if (['encoding.unsupported', 'charset.unsupported'].includes(error.type) && error.status === 415) {
       return response.status(415).json({ error: { code: 'UNSUPPORTED_ENCODING', message: 'Кодировка запроса не поддерживается.' } });
     }
-    console.error(error);
+    console.error('Unhandled API request failure.');
     return response.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Внутренняя ошибка сервера.' } });
   });
   return app;

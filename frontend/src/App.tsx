@@ -388,7 +388,7 @@ function Widget({ onCartChanged, language, onLanguageChange, readingMode, onRead
     setSelected(purchase)
     retryConfirmations.current = { ...retryConfirmations.current, [retryKey]: confirmationId }
     try {
-      const cart = await addToCart(purchase.product.sku, purchase.quantity, purchase.confirmationId)
+      const cart = await addToCart(purchase.product.sku, purchase.quantity, purchase.confirmationId, purchase.product.priceKzt)
       frontendCartUrl(cart.cartUrl)
       onCartChanged(cart)
       setUnresolvedCart(false)
