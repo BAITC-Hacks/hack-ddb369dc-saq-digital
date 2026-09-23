@@ -1,0 +1,13 @@
+{
+  "port": 3001,
+  "catalogPath": "../data/catalog.json",
+  "frontendDistPath": "../frontend/dist",
+  "cartUrl": "/cart",
+  "partnerDetailUrl": "https://ekt.kz/api/products/detail",
+  "nvidia": {
+    "chatCompletionsUrl": "https://integrate.api.nvidia.com/v1/chat/completions",
+    "model": "meta/llama-3.1-8b-instruct",
+    "maxOutputTokens": 180,
+    "maxCalls": 20
+  }
+}

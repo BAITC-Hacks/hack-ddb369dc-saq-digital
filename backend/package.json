@@ -1,0 +1,14 @@
+{
+  "name": "ekt-assistant-api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "zod": "^4.1.0"
+  }
+}
