@@ -1,0 +1,29 @@
+{
+  "port": 3001,
+  "catalogPath": "../data/catalog.json",
+  "frontendDistPath": "../frontend/dist",
+  "cartUrl": "/cart",
+  "partnerDetailUrl": "https://ekt.kz/api/products/detail",
+  "partner": {
+    "maxPages": 2000,
+    "concurrency": 4,
+    "timeoutMs": 5000
+  },
+  "uploads": {
+    "maxFileBytes": 921600,
+    "maxItems": 50,
+    "maxOutputTokens": 8000,
+    "timeoutMs": 60000,
+    "maxConcurrent": 2,
+    "maxJobs": 20,
+    "maxJobsPerSession": 5,
+    "resultTtlMs": 900000
+  },
+  "openai": {
+    "responsesUrl": "https://api.openai.com/v1/responses",
+    "model": "gpt-4.1-mini",
+    "maxOutputTokens": 768,
+    "maxCalls": 20,
+    "timeoutMs": 15000
+  }
+}
