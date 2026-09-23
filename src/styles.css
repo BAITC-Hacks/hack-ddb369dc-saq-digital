@@ -76,9 +76,9 @@ button:disabled { cursor: not-allowed; opacity: .54; }
 .agent strong, .agent small { display: block; }
 .agent strong { font-size: 15px; font-weight: 700; line-height: 1.2; }
 .agent small { margin-top: 1px; color: #e4f0f5; font-size: 11px; line-height: 1.2; }
-.icon { display: grid; width: 32px; height: 32px; flex: none; place-items: center; color: inherit; background: transparent; border: 0; border-radius: 4px; }
+.icon { display: grid; width: 44px; height: 44px; flex: none; place-items: center; color: inherit; background: transparent; border: 0; border-radius: 4px; }
 .widget .icon:hover { background: rgba(255, 255, 255, .14); }
-.messages { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; background: #f7f9fa; }
+.messages { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; background: #f7f9fa; -webkit-overflow-scrolling: touch; }
 .message { max-width: 95%; margin: 0 0 10px; padding: 10px 11px; border-radius: 4px; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
 .message small { display: block; margin-bottom: 4px; font-size: 11px; font-weight: 700; }
 .message p { margin: 0; }
@@ -97,7 +97,7 @@ button:disabled { cursor: not-allowed; opacity: .54; }
 .ok i { background: #24a568; }
 .out { color: #9b4c35; }
 .out i { background: #d7755b; }
-.sku { margin: 10px 0 3px; color: #72838c; font-size: 11px; }
+.sku { margin: 10px 0 3px; color: #5f7079; font-size: 11px; }
 .suggestion h3 { margin: 0; font-size: 14px; line-height: 1.3; }
 .specs { display: flex; align-items: center; gap: 7px; margin: 7px 0; color: #68757f; font-size: 11px; }
 .specs b { width: 3px; height: 3px; background: #98a5ae; border-radius: 50%; }
@@ -108,11 +108,11 @@ button:disabled { cursor: not-allowed; opacity: .54; }
 .property-list dd { margin: 0; font-weight: 700; text-align: right; }
 .certificates { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0; }
 .suggestion footer strong { color: #1d2e3b; font-size: 14px; }
-.suggestion footer button { display: inline-flex; align-items: center; gap: 5px; min-height: 34px; padding: 7px 10px; border-radius: 4px; font-size: 12px; }
+.suggestion footer button { display: inline-flex; align-items: center; gap: 5px; min-height: 44px; padding: 7px 10px; border-radius: 4px; font-size: 12px; }
 .suggestion footer button:disabled { color: #718096; background: #d2d8e1; border-color: #d2d8e1; }
 .card-actions { display: flex; align-items: center; gap: 7px; }
-.certificate { display: inline-flex; align-items: center; gap: 3px; color: #2c7294; font-size: 11px; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
-.source-link { display: inline-block; margin-top: 7px; color: #2c7294; font-size: 12px; font-weight: 700; text-underline-offset: 2px; }
+.certificate { display: inline-flex; align-items: center; gap: 3px; min-height: 44px; color: #2c7294; font-size: 11px; font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.source-link { display: inline-flex; align-items: center; min-height: 44px; margin-top: 7px; color: #2c7294; font-size: 12px; font-weight: 700; text-underline-offset: 2px; }
 .terms, .cart-note, .empty-result { display: flex; align-items: center; gap: 9px; padding: 11px; background: #eaf4ff; border-left: 3px solid #1e5ca8; color: #42515d; font-size: 12px; line-height: 1.4; }
 .cart-note { margin-top: 11px; color: #176342; background: #edf8f1; border-left-color: #25a267; }
 .cart-note a { margin-left: auto; color: #176342; font-weight: 800; white-space: nowrap; }
@@ -120,21 +120,23 @@ button:disabled { cursor: not-allowed; opacity: .54; }
 .loading { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: #607681; font-size: 12px; }
 .composer { padding: 12px 14px 14px; background: #fff; border-top: 1px solid #e0e7eb; }
 .composer textarea { display: block; width: 100%; min-height: 56px; resize: vertical; padding: 9px 10px; color: #293d49; background: #f7f9fa; border: 1px solid #d7e1e6; border-radius: 4px; font-size: 13px; line-height: 1.4; }
-.composer textarea::placeholder { color: #82939d; }
+.composer textarea::placeholder { color: #60717b; }
 .composer > div { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .attach { display: inline-flex; align-items: center; gap: 5px; color: #64727c; font-size: 12px; font-weight: 700; cursor: pointer; }
 .attached { overflow: hidden; margin: 0 0 6px; color: #63717c; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.demo { margin-left: auto; min-height: 36px; padding: 7px 11px; color: #2c7294; background: #fff; border: 1px solid #2c7294; border-radius: 4px; font-size: 12px; font-weight: 700; }
-.send { min-height: 36px; padding: 7px 14px; border-radius: 4px; font-size: 12px; }
+.demo { margin-left: auto; min-height: 44px; padding: 7px 11px; color: #2c7294; background: #fff; border: 1px solid #2c7294; border-radius: 4px; font-size: 12px; font-weight: 700; }
+.send { min-height: 44px; padding: 7px 14px; border-radius: 4px; font-size: 12px; }
 .widget button, .fab, .confirm button { transition: background-color .3s ease, border-color .3s ease, color .3s ease; }
 .widget button:hover:not(:disabled), .confirm button:hover:not(:disabled), .fab:hover { filter: brightness(.94); }
 .widget button:focus-visible, .widget a:focus-visible, .widget textarea:focus-visible, .fab:focus-visible, .confirm button:focus-visible { outline: 2px solid #214e68; outline-offset: 2px; }
+.widget > header .icon:focus-visible { outline-color: #fff; }
 .error { display: flex; align-items: center; gap: 5px; margin: 5px 0 0; color: #a24831; font-size: 11px; }
 .spin { animation: spin 1s linear infinite; }
-.fab { position: fixed; right: 20px; bottom: 20px; z-index: 5; display: inline-flex; align-items: center; gap: 8px; min-height: 42px; padding: 9px 14px; color: #fff; background: #2c7294; border: 1px solid #2c7294; border-radius: 4px; box-shadow: 0 4px 12px rgba(28, 65, 82, .18); font-size: 13px; font-weight: 700; }
+.fab { position: fixed; right: 20px; bottom: 20px; z-index: 5; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 9px 14px; color: #fff; background: #2c7294; border: 1px solid #2c7294; border-radius: 4px; box-shadow: 0 4px 12px rgba(28, 65, 82, .18); font-size: 13px; font-weight: 700; }
 .shade { position: fixed; inset: 0; z-index: 8; display: grid; place-items: center; padding: 20px; background: rgba(25, 39, 51, .45); }
-.confirm { position: relative; width: min(100%, 390px); max-height: calc(100dvh - 40px); overflow-y: auto; padding: 24px; background: #fff; border: 1px solid #d6e0e5; border-top: 4px solid #2c7294; border-radius: 4px; box-shadow: 0 10px 34px rgba(28, 65, 82, .22); }
+.confirm { position: relative; width: min(100%, 390px); max-height: calc(100dvh - 40px); overflow-y: auto; padding: 24px; background: #fff; border: 1px solid #d6e0e5; border-top: 4px solid #2c7294; border-radius: 4px; box-shadow: 0 10px 34px rgba(28, 65, 82, .22); -webkit-overflow-scrolling: touch; }
+.confirm:focus-visible { outline: 2px solid #214e68; outline-offset: 2px; }
 .close { position: absolute; top: 10px; right: 10px; color: #65737e; }
 .confirm-icon { display: grid; width: 40px; height: 40px; place-items: center; color: #2c7294; background: #edf5f8; border-radius: 4px; }
 .eyebrow { margin: 16px 0 5px; color: #2c7294; font-size: 11px; font-weight: 700; }
@@ -144,7 +146,7 @@ button:disabled { cursor: not-allowed; opacity: .54; }
 .total b { display: block; margin-top: 3px; color: #2c3b45; }
 .confirm footer { display: grid; grid-template-columns: 1fr 1.35fr; gap: 8px; margin-top: 17px; }
 .cancel { color: #2c7294; background: #fff; border: 1px solid #2c7294; border-radius: 4px; font-weight: 700; }
-.confirm footer button { min-height: 40px; border-radius: 4px; }
+.confirm footer button { min-height: 44px; border-radius: 4px; }
 .confirm footer:has(> button:only-child) { grid-template-columns: 1fr; }
 .confirm-error { padding: 9px 10px; color: #963b31 !important; background: #fff0ec; border-radius: 5px; }
 .cart-screen { max-width: 1290px; min-height: 430px; margin: 0 auto; padding: 36px 28px 100px; }
@@ -162,4 +164,5 @@ button:disabled { cursor: not-allowed; opacity: .54; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; } }
 @media (max-width: 760px) { .widget { width: min(390px, calc(100vw - 32px)); max-height: min(660px, calc(100dvh - 32px)); } }
 @media (max-width: 480px) { .widget { left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); width: auto; max-height: min(78dvh, calc(100dvh - 20px)); } .fab { right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); } .messages { padding: 12px; } .composer { padding: 10px 12px 12px; } .shade { padding: 12px; } .confirm { max-height: calc(100dvh - 24px); padding: 20px; } }
+@media (max-width: 480px) { .widget .agent small, .widget .message small, .widget .tag, .widget .stock, .widget .sku, .widget .specs, .widget .property-list, .widget .certificate, .widget .error, .confirm .eyebrow { font-size: 12px; } }
 @media (prefers-reduced-motion: reduce) { .widget .spin { animation: none !important; } .widget button, .fab, .confirm button { transition: none !important; } }
