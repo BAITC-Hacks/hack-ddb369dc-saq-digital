@@ -10,10 +10,13 @@ export type Product = {
   price: number
   isExactMatch: boolean
   recommendation: string
+  certificateUrl?: string
 }
 
 export type SearchResult = {
   interpretedQuery: string
+  quantity: number
   products: Product[]
   message: string
+  answerKind: 'product' | 'alternatives' | 'purchase-terms'
 }

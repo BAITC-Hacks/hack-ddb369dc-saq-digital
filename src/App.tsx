@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import {
   ArrowRight,
+  Paperclip,
   CheckCircle,
   CircleNotch,
+  FileText,
   MagnifyingGlass,
   List,
   Package,
@@ -37,8 +39,8 @@ function ProductSkeleton() {
   )
 }
 
-function ProductCard({ product, onChoose }: { product: Product; onChoose: (product: Product) => void }) {
-  const enoughStock = product.stock >= 8
+function ProductCard({ product, quantity, onChoose }: { product: Product; quantity: number; onChoose: (product: Product) => void }) {
+  const enoughStock = product.stock >= quantity
 
   return (
     <article className={`product-row ${product.isExactMatch ? 'product-row--exact' : ''}`}>
@@ -61,7 +63,8 @@ function ProductCard({ product, onChoose }: { product: Product; onChoose: (produ
         <p className="product-price">{priceFormatter.format(product.price)}</p>
       </div>
       <p className="product-reason">{product.recommendation}</p>
-      <button className="secondary-button" type="button" onClick={() => onChoose(product)}>
+      {product.certificateUrl && <a className="certificate-link" href={product.certificateUrl} target="_blank" rel="noreferrer"><FileText size={16} aria-hidden="true" /> Открыть сертификат</a>}
+      <button className="secondary-button" type="button" onClick={() => onChoose(product)} disabled={!enoughStock}>
         Выбрать позицию <ArrowRight size={18} weight="bold" aria-hidden="true" />
       </button>
     </article>
@@ -74,7 +77,10 @@ function App() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
+  const [selectedQuantity, setSelectedQuantity] = useState(0)
   const [cartProduct, setCartProduct] = useState<Product | null>(null)
+  const [cartQuantity, setCartQuantity] = useState(0)
+  const [attachmentName, setAttachmentName] = useState('')
 
   const runSearch = async (submittedQuery = query) => {
     const trimmedQuery = submittedQuery.trim()
@@ -99,6 +105,7 @@ function App() {
   const addToCart = () => {
     if (!selectedProduct) return
     setCartProduct(selectedProduct)
+    setCartQuantity(selectedQuantity)
     setSelectedProduct(null)
   }
 
@@ -147,6 +154,11 @@ function App() {
             />
           </div>
           {error && <p className="form-error" role="alert"><WarningCircle size={17} weight="fill" /> {error}</p>}
+          <div className="attachment-row">
+            <label className="attachment-button" htmlFor="catalog-attachment"><Paperclip size={17} aria-hidden="true" /> Прикрепить файл</label>
+            <input id="catalog-attachment" className="visually-hidden" type="file" accept=".xlsx,.xls,.doc,.docx,.pdf,.jpg,.jpeg" onChange={(event) => setAttachmentName(event.target.files?.[0]?.name ?? '')} />
+            {attachmentName && <span className="attachment-name">{attachmentName}</span>}
+          </div>
 
           <div className="search-actions">
             <button className="text-button" type="button" onClick={() => void runSearch(demoQuery)}>
@@ -157,7 +169,7 @@ function App() {
               Найти позицию
             </button>
           </div>
-          <p className="helper-text">Ассистент использует данные каталога EKT. Товар не попадёт в корзину без вашего явного подтверждения.</p>
+          <p className="helper-text">Можно прикрепить спецификацию, накладную или фото: XLSX, Word, PDF, JPEG. Товар не попадёт в корзину без вашего явного подтверждения.</p>
         </div>
 
         <aside className="cart-panel" id="cart" aria-label="Корзина EKT.kz" aria-live="polite">
@@ -168,7 +180,7 @@ function App() {
           {cartProduct ? (
             <div className="cart-item">
               <div className="cart-item__icon"><Package size={24} weight="duotone" aria-hidden="true" /></div>
-              <div><p>Добавлено в корзину EKT.kz</p><strong>{cartProduct.name}</strong><span>8 шт. · {priceFormatter.format(cartProduct.price * 8)}</span></div>
+              <div><p>Добавлено в корзину EKT.kz</p><strong>{cartProduct.name}</strong><span>{cartQuantity} шт. · {priceFormatter.format(cartProduct.price * cartQuantity)}</span><a href="https://ekt.kz/personal/cart/">Перейти к оформлению</a></div>
             </div>
           ) : (
             <div className="cart-empty">
@@ -185,14 +197,17 @@ function App() {
         {!isLoading && result && (
           <>
             <div className="result-heading">
-              <div><p className="eyebrow">Результат подбора</p><h2>Рекомендации по запросу</h2></div>
+              <div><p className="eyebrow">Диалог с AI-помощником EKT</p><h2>Ответ по каталогу</h2></div>
               <span className="query-chip">{result.interpretedQuery}</span>
             </div>
-            <p className="result-message">{result.message}</p>
+            <div className="chat-message chat-message--customer"><span>Вы</span><p>{query}</p></div>
+            <div className="chat-message chat-message--assistant"><span>Помощник EKT</span><p>{result.message}</p></div>
             {result.products.length > 0 ? (
-              <div className="result-list">{result.products.map((product) => <ProductCard key={product.id} product={product} onChoose={setSelectedProduct} />)}</div>
+              <div className="result-list">{result.products.map((product) => <ProductCard key={product.id} product={product} quantity={result.quantity} onChoose={(product) => { setSelectedProduct(product); setSelectedQuantity(result.quantity) }} />)}</div>
             ) : (
-              <div className="empty-results"><Package size={32} weight="duotone" aria-hidden="true" /><h3>Подходящих позиций не найдено</h3><p>Попробуйте уточнить номинал или свяжитесь с менеджером.</p></div>
+              result.answerKind === 'purchase-terms'
+                ? <div className="terms-note"><ShieldCheck size={24} weight="duotone" aria-hidden="true" /><span>Для точного расчёта доставки и оплаты перейдите к оформлению после выбора товаров.</span></div>
+                : <div className="empty-results"><Package size={32} weight="duotone" aria-hidden="true" /><h3>Подходящих позиций не найдено</h3><p>Попробуйте уточнить артикул, номинал или свяжитесь с менеджером.</p></div>
             )}
           </>
         )}
@@ -206,10 +221,10 @@ function App() {
             <p className="panel-kicker">Подтверждение действия</p>
             <h2 id="confirmation-title">Добавить товар в корзину?</h2>
             <p className="confirmation-product">{selectedProduct.sku}<br /><strong>{selectedProduct.name}</strong></p>
-            <div className="confirmation-meta"><span>Количество <b>8 шт.</b></span><span>Итого <b>{priceFormatter.format(selectedProduct.price * 8)}</b></span></div>
+            <div className="confirmation-meta"><span>Количество <b>{selectedQuantity} шт.</b></span><span>Итого <b>{priceFormatter.format(selectedProduct.price * selectedQuantity)}</b></span></div>
             <div className="modal-actions">
               <button className="ghost-button" type="button" onClick={() => setSelectedProduct(null)}>Отмена</button>
-              <button className="primary-button" type="button" onClick={addToCart}>Добавить в корзину EKT</button>
+              <button className="primary-button" type="button" onClick={addToCart}>Да, добавить в корзину EKT</button>
             </div>
           </section>
         </div>

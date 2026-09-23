@@ -9,10 +9,10 @@ const productCatalog: Product[] = [
     curve: 'C',
     amperage: 16,
     breakingCapacity: '10 kA',
-    stock: 3,
+    stock: 0,
     price: 12490,
     isExactMatch: true,
-    recommendation: 'Точное совпадение по всем параметрам, но доступно только 3 из 8 штук.',
+    recommendation: 'Точное совпадение по всем параметрам, но остаток на складе сейчас равен нулю.',
   },
   {
     id: 'av-3p-c16-10ka-31',
@@ -47,18 +47,33 @@ const delay = (milliseconds: number) =>
 
 export async function searchDemoCatalog(query: string): Promise<SearchResult> {
   await delay(680)
+  const normalizedQuery = query.toLocaleLowerCase()
 
-  if (query.toLocaleLowerCase().includes('c63')) {
+  if (/достав|оплат|минимальн|самовывоз/.test(normalizedQuery)) {
+    return {
+      interpretedQuery: 'Условия покупки · Астана',
+      quantity: 0,
+      products: [],
+      answerKind: 'purchase-terms',
+      message: 'В Астане доступен самовывоз. Условия доставки и оплаты зависят от состава заказа; итоговые условия подтверждаются на странице оформления.',
+    }
+  }
+
+  if (normalizedQuery.includes('c63')) {
     return {
       interpretedQuery: '3P · C63 · 10 kA · количество не определено',
+      quantity: 0,
       products: [],
+      answerKind: 'product',
       message: 'В demo-каталоге нет подходящих позиций. Попробуйте изменить номинал или запросить помощь менеджера.',
     }
   }
 
   return {
     interpretedQuery: '3P · C16 · 10 kA · 8 шт.',
+    quantity: 8,
     products: productCatalog,
+    answerKind: 'alternatives',
     message: 'Нашёл точную позицию и два варианта замены. Для заказа 8 штук рекомендую SafeLine.',
   }
 }
