@@ -1,0 +1,25 @@
+name: ekt-match
+
+services:
+  app:
+    image: ${APP_IMAGE:-ekt-match:local}
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${APP_PORT:-8080}:${PORT:-3001}"
+    environment:
+      NODE_ENV: production
+      PORT: ${PORT:-3001}
+      APP_MODE: ${APP_MODE:-offline}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_RESPONSES_URL: ${OPENAI_RESPONSES_URL:-}
+      EKT_API_USERNAME: ${EKT_API_USERNAME:-}
+      EKT_API_PASSWORD: ${EKT_API_PASSWORD:-}
+      EKT_PRODUCT_DETAIL_URL: ${EKT_PRODUCT_DETAIL_URL:-}
+      CATALOG_PATH: ${CATALOG_PATH:-}
+      FRONTEND_DIST_PATH: ${FRONTEND_DIST_PATH:-}
+      CART_URL: ${CART_URL:-}

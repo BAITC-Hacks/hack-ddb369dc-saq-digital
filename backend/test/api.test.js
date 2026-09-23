@@ -31,6 +31,21 @@ async function getCart(base, sessionId) {
   return (await fetch(`${base}/api/cart`, { headers: { 'X-Session-Id': sessionId } })).json();
 }
 
+test('health checks require no session, make no AI calls, and preserve cart state', async () => {
+  await withServer(async (base) => {
+    const { body: { sessionId } } = await post(base, '/api/session', {});
+    const { body: cart } = await post(base, '/api/cart', {
+      sku: 'EXACT', quantity: 1, confirmed: true, confirmationId: 'health-check',
+    }, sessionId);
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await fetch(`${base}/api/health`);
+      assert.equal(response.status, 200);
+      assert.deepEqual(await response.json(), { status: 'ok' });
+    }
+    assert.deepEqual(await getCart(base, sessionId), cart);
+  }, { queryParser: { extract: () => assert.fail('Health checks must not call OpenAI') } });
+});
+
 test('search leaves cart untouched, confirmation adds once', async () => {
   await withServer(async (base) => {
     const { body: { sessionId } } = await post(base, '/api/session', {});

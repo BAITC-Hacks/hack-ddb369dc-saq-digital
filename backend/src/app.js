@@ -32,6 +32,8 @@ export function createApp(catalog, options = {}) {
     next();
   });
 
+  app.get('/api/health', (_request, response) => response.json({ status: 'ok' }));
+
   app.post('/api/search', async (request, response) => {
     const { query } = parseBody(searchBody, request.body);
     const sessionId = request.get('X-Session-Id');

@@ -37,6 +37,10 @@ The backend maps `breakingCapacity` to `breakingCapacityKa` and `price` to `pric
 
 Technical alternatives need verified `poles`, `curve`, `amps`, and `breakingCapacityKa`. The partner sample has conflicting current ratings in the name and properties; such a product is shown for article inquiries but excluded from automatic compatibility matching until corrected.
 
+## Health
+
+`GET /api/health` returns HTTP 200 with `{ "status": "ok" }` after the catalog is loaded and the server is listening. It requires no session, does not change cart state, and does not contact OpenAI or the partner API. Docker uses it for readiness. It does not assert external service availability.
+
 ## Session and cart
 
 1. `POST /api/session` with an empty JSON object returns `{ "sessionId": "..." }` (HTTP 201).
