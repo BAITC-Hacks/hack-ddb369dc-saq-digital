@@ -4,11 +4,11 @@ The backend API returns JSON. Prices are in tenge (`priceKzt`), electrical break
 
 ## Starting the backend
 
-From `server/`, install dependencies without creating a lock file and run `npm run dev`. The default port and catalog location are in `server/config.json`; `PORT` and `CATALOG_PATH` override them. The data team owns the default `data/catalog.json` file. The server validates it at startup.
+From the repository root, run `npm run setup` and `npm run dev` for the integrated project. Run `npm run build` followed by `npm start` to serve the built frontend and API from one process. For backend-only development, use `npm --prefix backend run dev`. Defaults are in `backend/config.json`; `PORT` and `CATALOG_PATH` override them. The backend validates `data/catalog.json` at startup.
 
-`APP_MODE` defaults to offline. In `live` mode, set `EKT_API_USERNAME` and `EKT_API_PASSWORD` in the environment. For products with a partner `id`, the backend refreshes their details from the partner read API at startup. If a detail request fails, the local catalog entry remains available. The API URL is configured in `server/config.json` and may be overridden with `EKT_PRODUCT_DETAIL_URL`. Never put credentials in the repository.
+`APP_MODE` defaults to offline. In `live` mode, set `EKT_API_USERNAME` and `EKT_API_PASSWORD` in the environment. For products with a partner `id`, the backend refreshes their details from the partner read API at startup. If a detail request fails, the local catalog entry remains available. The API URL is configured in `backend/config.json` and may be overridden with `EKT_PRODUCT_DETAIL_URL`. Never put credentials in the repository.
 
-If `NVIDIA_API_KEY` is also set in live mode, NVIDIA NIM may extract technical filters when local parsing cannot understand a query. The response is strictly validated and can never supply a SKU, price, or stock. The adapter caches normalized requests and limits calls and output tokens using `server/config.json`. Without the key, or if extraction fails, the local parser remains available. Analog explanations are deterministic from catalog fields.
+If `NVIDIA_API_KEY` is also set in live mode, NVIDIA NIM may extract technical filters when local parsing cannot understand a query. The response is strictly validated and can never supply a SKU, price, or stock. The adapter caches normalized requests and limits calls and output tokens using `backend/config.json`. Without the key, or if extraction fails, the local parser remains available. Analog explanations are deterministic from catalog fields.
 
 ## Catalog format for the data owner
 
@@ -43,7 +43,7 @@ Technical alternatives need verified `poles`, `curve`, `amps`, and `breakingCapa
 4. After the user explicitly presses the confirmation button, send `POST /api/cart` with `X-Session-Id` and this body:
 
 ```json
-{ "sku": "DEMO-001", "quantity": 8, "confirmed": true, "confirmationId": "unique-id-for-this-confirmation" }
+{ "sku": "DEMO-MCB-003", "quantity": 8, "confirmed": true, "confirmationId": "unique-id-for-this-confirmation" }
 ```
 
 The response includes updated `items`, `totalPriceKzt`, and `cartUrl`. Each item includes `sku`, `name`, `quantity`, `unitPriceKzt`, and `lineTotalKzt`. Use a new `confirmationId` for each distinct confirmation and reuse it for retries. Repeated delivery cannot add twice; reusing an ID for a different SKU or quantity returns HTTP 409. Cart state is in server memory and resets on restart. The provided partner API has no cart mutation endpoint, so this is the prototype cart; linking to ekt.kz's cart would show unrelated state.
@@ -69,3 +69,5 @@ Send `X-Session-Id` with search requests to preserve the last discussed product 
 An inquiry containing an article from the local catalog returns `intent: "product"`, a product answer with price and stock, all available `properties`, certificates when provided, and alternatives when the item is unavailable and its technical ratings are complete. A purchase question about payment, delivery, or minimum batch returns `intent: "purchase_terms"`, an `answer`, and `sourceUrl` pointing to the [partner's published terms](https://ekt.kz/about/information/). A universal minimum batch is not stated there; the answer says so rather than guessing.
 
 Errors use `{ "error": { "code": "...", "message": "..." } }` and an appropriate HTTP status (400, 401, 404, 409, or 422).
+
+Product inquiries also return a top-level `quantity` alongside the existing fields. This preserves the requested quantity when `filters` is `null` because technical specifications are incomplete. The frontend uses it first, then `filters.quantity` for specification searches. A new specification query starts a fresh search rather than reusing the previous product from the session.
