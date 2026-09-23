@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, CheckCircle, CircleNotch, FileText, MagnifyingGlass, Package, Paperclip, ShoppingCart, Sparkle, WarningCircle, X } from '@phosphor-icons/react'
+import { ArrowRight, CheckCircle, CircleNotch, FileText, Heart, List, MagnifyingGlass, MapPin, Package, Paperclip, Phone, ShoppingCart, Sparkle, UserCircle, WarningCircle, X } from '@phosphor-icons/react'
 import { searchDemoCatalog } from './lib/demoApi'
 import type { Product, SearchResult } from './types'
 
@@ -57,7 +57,19 @@ function Widget({ cartCount, add }: { cartCount: number; add: (product: Product,
 
 function App() {
   const [cart, setCart] = useState<{ product: Product; quantity: number } | null>(null)
-  return <main className="store"><header className="store-header"><a className="brand" href="#catalog">ЭЛЕКТРО<span>КОМПЛЕКТ</span></a><div className="header-actions"><button type="button">Каталог</button><label><MagnifyingGlass size={17} /><input placeholder="Поиск товаров" /></label><a href="https://ekt.kz/personal/cart/"><ShoppingCart size={18} /> Корзина <b>{cart ? 1 : 0}</b></a></div></header><nav>Кабель и провод <i /> Низковольтная аппаратура <i /> Светильники и лампы <i /> Монтаж и инструмент</nav><section className="catalog" id="catalog"><p className="crumbs">Главная / Каталог / Низковольтная аппаратура</p><h1>Автоматические выключатели</h1><div className="catalog-body"><aside><strong>Фильтры</strong><p>Производитель</p><label><input type="checkbox" /> EKT</label><label><input type="checkbox" /> IEK</label><p>Номинальный ток</p><label><input type="checkbox" /> 16 A</label><label><input type="checkbox" /> 32 A</label></aside><div className="products"><article><div><Package size={42} weight="thin" /></div><p>Автоматический выключатель</p><strong>3P C16, 10 kA</strong><span>12 490 ₸</span><button type="button">В корзину</button></article><article><div><Package size={42} weight="thin" /></div><p>Автоматический выключатель</p><strong>3P C25, 10 kA</strong><span>13 100 ₸</span><button type="button">В корзину</button></article></div></div></section><Widget cartCount={cart ? 1 : 0} add={(product, quantity) => setCart({ product, quantity })} /></main>
+  return <main className="store">
+    <div className="site-top">
+      <div className="site-top__inner"><button type="button"><MapPin size={14} weight="fill" /> Алматы</button><div className="site-top__links"><a href="#account"><UserCircle size={14} /> Личный кабинет</a><a href="#b2b">B2B - EKT PRO</a><a href="#buyers">Покупателям</a><a href="#request">Оставить заявку</a><a href="#kz">ҚАЗ</a></div><a className="phones" href="tel:+77273468888"><Phone size={14} weight="fill" /> +7 (727) 346-88-88<br />+7 (778) 046-88-88</a></div>
+    </div>
+    <header className="store-header">
+      <a className="brand" href="#catalog" aria-label="Группа компаний Электрокомплект"><span>ГРУППА КОМПАНИЙ</span>ЭЛЕКТРОКОМПЛЕКТ</a>
+      <button className="catalog-button" type="button">Каталог <List size={19} weight="bold" /></button>
+      <label className="site-search"><MagnifyingGlass size={20} /><input placeholder="Поиск" /></label>
+      <div className="header-actions"><a href="#compare">Сравнить</a><a href="#favorites"><Heart size={18} /> Избранное</a><a href="https://ekt.kz/personal/cart/"><ShoppingCart size={19} /> Корзина <b>{cart ? 1 : 0}</b></a></div>
+    </header>
+    <div className="category-bar"><a href="#catalog">Каталог продукции</a><a href="#cable">Кабель / Провод</a><a href="#light">Светильники / Лампы</a><a href="#low">Низковольтная аппаратура</a><a href="#tools">Монтаж и инструмент</a></div>
+    <section className="catalog" id="catalog"><p className="crumbs">Главная / Каталог продукции / Низковольтная аппаратура</p><h1>Автоматические выключатели</h1><div className="catalog-body"><aside><strong>Фильтры</strong><p>Производитель</p><label><input type="checkbox" /> EKT</label><label><input type="checkbox" /> IEK</label><p>Номинальный ток</p><label><input type="checkbox" /> 16 A</label><label><input type="checkbox" /> 32 A</label></aside><div className="products"><article><div><Package size={42} weight="thin" /></div><p>Автоматический выключатель</p><strong>3P C16, 10 kA</strong><span>12 490 ₸</span><button type="button">В корзину</button></article><article><div><Package size={42} weight="thin" /></div><p>Автоматический выключатель</p><strong>3P C25, 10 kA</strong><span>13 100 ₸</span><button type="button">В корзину</button></article></div></div></section><Widget cartCount={cart ? 1 : 0} add={(product, quantity) => setCart({ product, quantity })} />
+  </main>
 }
 
 export default App
