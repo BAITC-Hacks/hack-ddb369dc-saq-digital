@@ -82,6 +82,9 @@ button:disabled { cursor: not-allowed; opacity: .54; }
 .message { max-width: 95%; margin: 0 0 10px; padding: 10px 11px; border-radius: 4px; font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; }
 .message small { display: block; margin-bottom: 4px; font-size: 11px; font-weight: 700; }
 .message p { margin: 0; }
+.language-options { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.language-options button { min-height: 44px; padding: 8px 12px; color: #2c7294; background: #fff; border: 1px solid #a9c7d7; border-radius: 4px; font-size: 12px; font-weight: 700; }
+.language-options button[aria-pressed="true"] { color: #fff; background: #2c7294; border-color: #2c7294; }
 .assistant { color: #293d49; background: #fff; border: 1px solid #e2e8eb; }
 .assistant small { color: #2c7294; }
 .customer { margin-left: auto; color: #294b5e; background: #e8f2f6; border: 1px solid #cbdfe9; }

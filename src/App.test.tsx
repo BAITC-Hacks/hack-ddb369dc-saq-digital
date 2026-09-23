@@ -37,10 +37,46 @@ afterEach(() => {
   cleanup()
   vi.resetAllMocks()
   vi.unstubAllGlobals()
+  window.localStorage.clear()
   window.history.replaceState({}, '', '/')
 })
 
 describe('EKT assistant integration', () => {
+  it('offers language choices in the first assistant message and persists the chat choice', () => {
+    render(<App />)
+    expect(screen.getByText(/Выберите язык для общения/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Русский' })).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(screen.getByRole('button', { name: 'Қазақша' }))
+
+    expect(window.localStorage.getItem('ekt-ui-language')).toBe('kk')
+    expect(screen.getByRole('button', { name: 'Каталог' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: 'EKT көмекшісі' })).toHaveAttribute('lang', 'kk')
+    expect(screen.getByRole('textbox', { name: 'EKT көмекшісіне хабарлама' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Қазақша' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Чатты жабу' }))
+    fireEvent.click(screen.getByRole('button', { name: 'EKT көмекшісімен чатты ашу' }))
+    expect(screen.getByRole('textbox', { name: 'EKT көмекшісіне хабарлама' })).toHaveFocus()
+
+    cleanup()
+    render(<App />)
+    expect(screen.getByRole('dialog', { name: 'EKT көмекшісі' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Русский' }))
+    expect(window.localStorage.getItem('ekt-ui-language')).toBe('ru')
+    expect(screen.getByRole('dialog', { name: 'Помощник EKT' })).toBeInTheDocument()
+  })
+
+  it('keeps explicit cart confirmation working in Kazakh', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Қазақша' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Мысал' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Таңдау/ }))
+    expect(searchCatalog).toHaveBeenCalledWith(expect.stringContaining('8 шт.'))
+    expect(addToCart).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Иә, қосу' }))
+    expect(await screen.findByRole('heading', { name: 'Себет' })).toBeInTheDocument()
+    expect(addToCart).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps the launcher and chat operable with Escape and restores focus', () => {
     render(<App />)
     const chat = screen.getByRole('dialog', { name: 'Помощник EKT' })
@@ -55,7 +91,7 @@ describe('EKT assistant integration', () => {
     expect(chat).not.toBeInTheDocument()
     fireEvent.click(launcher)
     expect(screen.getByRole('dialog', { name: 'Помощник EKT' })).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: 'Сообщение помощнику EKT' })).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Русский' })).toHaveFocus()
   })
 
   it('starts collapsed at mobile width without removing the launcher', () => {
@@ -64,6 +100,7 @@ describe('EKT assistant integration', () => {
     expect(screen.queryByRole('dialog', { name: 'Помощник EKT' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Открыть чат с помощником EKT' }))
     expect(screen.getByRole('dialog', { name: 'Помощник EKT' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Русский' })).toHaveFocus()
   })
 
   it('does not show a cart loading error as an unsolicited chat message', async () => {
