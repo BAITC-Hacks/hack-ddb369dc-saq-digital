@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
+import { translations } from './i18n'
 import { startBackend } from './test/backend'
 
 const nativeFetch = globalThis.fetch
@@ -11,6 +12,7 @@ beforeEach(async () => {
   backend = await startBackend()
   window.history.replaceState({}, '', '/')
   window.sessionStorage.clear()
+  window.sessionStorage.setItem('ekt-assistant-open', 'true')
   window.localStorage.clear()
   transport = vi.fn<typeof fetch>((input, options) => nativeFetch(new URL(String(input), backend.url), options))
   vi.stubGlobal('fetch', transport)
@@ -24,11 +26,9 @@ afterEach(async () => {
 
 const cartWrites = () => transport.mock.calls.filter(([url, options]) => String(url).endsWith('/cart') && options?.method === 'POST')
 
-async function search(query?: string) {
-  if (query) {
-    fireEvent.change(screen.getByLabelText('Сообщение помощнику EKT'), { target: { value: query } })
-    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
-  } else fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+async function search(query = translations.ru.demoQuery) {
+  fireEvent.change(screen.getByLabelText('Сообщение помощнику EKT'), { target: { value: query } })
+  fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
   await waitFor(() => expect(screen.getByRole('button', { name: 'Отправить' })).toBeEnabled())
 }
 
@@ -48,7 +48,7 @@ describe('integrated EKT assistant', () => {
     expect(screen.getByText('DEMO-MCB-003')).toBeInTheDocument()
     expect(screen.getByText('DEMO-MCB-004')).toBeInTheDocument()
     expect(screen.queryByText('DEMO-MCB-005')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Недоступно/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Изменить количество/ })).toBeEnabled()
     fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
     expect(cartWrites()).toHaveLength(0)
     expect(screen.getByRole('link', { name: /Корзина 0/ })).toBeInTheDocument()
@@ -86,7 +86,7 @@ describe('integrated EKT assistant', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Сервер помощника недоступен')
     expect(screen.getByRole('link', { name: /Корзина 0/ })).toBeInTheDocument()
     fireEvent.keyDown(window, { key: 'Escape' })
-    fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить добавление' }))
     fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
     expect(await screen.findByRole('heading', { name: 'Корзина' })).toBeInTheDocument()
     const writes = cartWrites().map(([, options]) => JSON.parse(String(options?.body)))
@@ -158,7 +158,7 @@ describe('integrated EKT assistant', () => {
     expect(await screen.findByRole('link', { name: 'Источник условий' })).toHaveAttribute('href', 'https://ekt.kz/about/information/')
     expect(screen.getByText(/Физические лица могут оплатить/)).toBeInTheDocument()
     await search('4P D63, 15 kA, 1 штука')
-    expect(await screen.findByText(/Нет подходящих позиций/)).toBeInTheDocument()
+    expect(await screen.findByText('Уточните артикул или характеристики товара.')).toBeInTheDocument()
     await search('автомат')
     expect(await screen.findByText(/Сейчас включён локальный режим/)).toHaveTextContent('Укажите полюса')
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
@@ -202,7 +202,7 @@ describe('integrated EKT assistant', () => {
     window.history.replaceState({}, '', '/checkout-cart')
     render(<App />)
     expect(await screen.findByRole('heading', { name: 'Корзина' })).toBeInTheDocument()
-    expect(screen.getByText('8 шт.')).toBeInTheDocument()
+    expect(await screen.findByText('8 шт.')).toBeInTheDocument()
   })
 
   it('answers free-form questions in the chat, preserves history, and accepts Enter', async () => {
@@ -228,7 +228,7 @@ describe('integrated EKT assistant', () => {
     expect(cartWrites()).toHaveLength(0)
   })
 
-  it('keeps a failed question visible and retries without duplicating it', async () => {
+  it('keeps a failed attempt visible and appends the explicit retry', async () => {
     render(<App />)
     await waitFor(() => expect(transport.mock.calls.some(([url]) => String(url).endsWith('/cart'))).toBe(true))
     let unavailable = true
@@ -239,9 +239,9 @@ describe('integrated EKT assistant', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Сервер временно недоступен')
     expect(screen.getByText('что по товарам есть')).toBeInTheDocument()
     unavailable = false
-    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить вопрос' }))
     expect(await screen.findByText(/Сейчас включён локальный режим/)).toBeInTheDocument()
-    expect(screen.getAllByText('что по товарам есть')).toHaveLength(1)
+    expect(screen.getAllByText('что по товарам есть')).toHaveLength(2)
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     expect(cartWrites()).toHaveLength(0)
   })

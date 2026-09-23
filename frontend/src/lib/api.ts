@@ -1,8 +1,9 @@
 import configuration from '../../config.json'
-import type { ApiProduct, ApiSearchResult, Cart, Product, SearchResult } from '../types'
+import type { ApiProduct, ApiSearchResult, Cart, CartSnapshot, SearchResponse } from '../types'
 
 const configuredUrl = (import.meta.env.VITE_API_BASE_URL ?? configuration.apiBaseUrl).replace(/\/+$/, '')
-const baseUrl = configuredUrl.endsWith('/api') ? configuredUrl : `${configuredUrl}/api`
+export const apiBaseUrl = configuredUrl.endsWith('/api') ? configuredUrl : `${configuredUrl}/api`
+let chatSessions: Readonly<Record<string, Promise<string> | undefined>> = {}
 let sessionId: string | undefined
 let sessionRequest: Promise<string> | undefined
 let rejectedStoredSession: string | undefined
@@ -11,7 +12,7 @@ let pendingSession: string | undefined
 let pendingConfirmations = new Map<string, string>()
 
 export class ApiError extends Error {
-  constructor(message: string, readonly status: number, readonly code: string) {
+  constructor(message: string, readonly status: number, readonly code?: string) {
     super(message)
   }
 }
@@ -42,7 +43,7 @@ function invalidResponse(): never {
 function validProduct(value: unknown): value is ApiProduct {
   if (!record(value)) return false
   return text(value.sku) && text(value.name) && nonnegative(value.priceKzt)
-    && nonnegative(value.stock) && Number.isSafeInteger(value.stock)
+    && nonnegative(value.stock)
     && optionalString(value.brand) && optionalString(value.technicalIssue)
     && (value.poles == null || positiveInteger(value.poles))
     && (value.curve == null || curve(value.curve)) && optionalPositive(value.amps) && optionalPositive(value.breakingCapacityKa)
@@ -55,7 +56,7 @@ function parseSearch(value: unknown): ApiSearchResult {
   if (!record(value) || typeof value.intent !== 'string' || !['specifications', 'product', 'purchase_terms', 'conversation'].includes(value.intent)
     || !text(value.answer) || !Array.isArray(value.alternatives) || !optionalString(value.sourceUrl)
     || (value.quantity !== undefined && (!nonnegative(value.quantity) || !Number.isSafeInteger(value.quantity)))
-    || (value.notice !== undefined && (typeof value.notice !== 'string' || !['AI_OFFLINE', 'AI_UNAVAILABLE', 'AI_CALL_LIMIT', 'AI_RATE_LIMIT'].includes(value.notice)))) invalidResponse()
+    || (value.notice !== undefined && (typeof value.notice !== 'string' || !['AI_OFFLINE', 'AI_UNAVAILABLE', 'AI_CALL_LIMIT', 'AI_RATE_LIMIT', 'CATALOG_LOADING', 'CATALOG_UNAVAILABLE'].includes(value.notice)))) invalidResponse()
   const filters = value.filters
   if (filters !== null && (!record(filters) || !positiveInteger(filters.poles) || !curve(filters.curve)
     || !nonnegative(filters.amps) || filters.amps <= 0 || !nonnegative(filters.breakingCapacityKa) || filters.breakingCapacityKa <= 0
@@ -66,7 +67,7 @@ function parseSearch(value: unknown): ApiSearchResult {
   return value as ApiSearchResult
 }
 
-function parseCart(value: unknown): Cart {
+function parseCart(value: unknown): CartSnapshot {
   if (!record(value) || !Array.isArray(value.items) || !nonnegative(value.totalPriceKzt) || !optionalString(value.cartUrl)) invalidResponse()
   const seen = new Set<string>()
   let total = 0
@@ -117,7 +118,7 @@ async function request<T>(path: string, parse: (value: unknown) => T, body?: unk
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), configuration.requestTimeoutMs ?? 35000)
   try {
-    const response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(`${apiBaseUrl}${path}`, {
       method: body === undefined ? 'GET' : 'POST',
       headers: { 'Content-Type': 'application/json', ...(session && { 'X-Session-Id': session }) },
       ...(body !== undefined && { body: JSON.stringify(body) }),
@@ -181,49 +182,39 @@ async function sessionRequestFor<T>(path: string, parse: (value: unknown) => T, 
   }
 }
 
-function displayProduct(product: ApiProduct, isExactMatch: boolean, recommendation: string): Product {
-  return {
-    id: product.sku,
-    sku: product.sku,
-    name: product.name,
-    poles: product.poles == null ? undefined : `${product.poles}P`,
-    curve: product.curve ?? undefined,
-    amperage: product.amps ?? undefined,
-    breakingCapacity: product.breakingCapacityKa == null ? undefined : `${product.breakingCapacityKa} kA`,
-    price: product.priceKzt,
-    stock: product.stock,
-    isExactMatch,
-    recommendation,
-    certificateUrl: product.certificates?.[0]?.url,
-    certificates: product.certificates,
-    properties: product.properties,
-    technicalIssue: product.technicalIssue,
-    minimumOrderQuantity: product.minimumOrderQuantity,
+function ensureChatSession(chatId: string): Promise<string> {
+  const saved = Object.hasOwn(chatSessions, chatId) ? chatSessions[chatId] : undefined
+  if (saved) return saved
+  const pending = request('/session', parseSession, {})
+    .then(({ sessionId }) => {
+      if (!sessionId) throw new ApiError('Сервер не создал сессию.', 0, 'INVALID_SESSION')
+      return sessionId
+    })
+    .catch((error: unknown) => {
+      if (chatSessions[chatId] === pending) chatSessions = { ...chatSessions, [chatId]: undefined }
+      throw error
+    })
+  chatSessions = { ...chatSessions, [chatId]: pending }
+  return pending
+}
+
+async function withChatSession<T>(chatId: string, operation: (sessionId: string) => Promise<T>): Promise<T> {
+  const pending = ensureChatSession(chatId)
+  const sessionId = await pending
+  try {
+    return await operation(sessionId)
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 401) throw error
+    if (chatSessions[chatId] === pending) chatSessions = { ...chatSessions, [chatId]: undefined }
+    return operation(await ensureChatSession(chatId))
   }
 }
 
-export async function searchCatalog(query: string): Promise<SearchResult> {
-  const result = await sessionRequestFor('/search', parseSearch, { query, conversation: true })
-  const quantity = result.quantity ?? result.filters?.quantity ?? (result.intent === 'purchase_terms' ? 0 : 1)
-  const products: Product[] = []
-  if (result.exactMatch) {
-    const { product, canFulfill } = result.exactMatch
-    products.push(displayProduct(product, true, canFulfill
-      ? 'Товар есть в запрошенном количестве.'
-      : `На складе ${product.stock} шт., запрошено ${quantity} шт.`))
-  }
-  products.push(...result.alternatives.map(({ product, reason }) => displayProduct(product, false, reason)))
-  return {
-    quantity,
-    products,
-    message: result.answer,
-    answerKind: result.intent === 'conversation' ? 'conversation' : result.intent === 'purchase_terms' ? 'purchase-terms' : result.alternatives.length ? 'alternatives' : 'product',
-    interpretedQuery: result.filters
-      ? `${result.filters.poles}P · ${result.filters.curve}${result.filters.amps} · ${result.filters.breakingCapacityKa} kA · ${quantity} шт.`
-      : '',
-    sourceUrl: result.sourceUrl,
-    notice: result.notice,
-  }
+export function searchCatalog(query: string, chatId?: string): Promise<SearchResponse> {
+  const body = { query, conversation: true }
+  return chatId === undefined
+    ? sessionRequestFor('/search', parseSearch, body)
+    : withChatSession(chatId, (session) => request('/search', parseSearch, body, session))
 }
 
 export function frontendCartUrl(cartUrl = configuration.cartPath): string {
@@ -233,11 +224,11 @@ export function frontendCartUrl(cartUrl = configuration.cartPath): string {
   return `${url.pathname}${url.search}${url.hash}`
 }
 
-export async function getCart(): Promise<Cart> {
+export async function getCart(): Promise<CartSnapshot> {
   return sessionRequestFor('/cart', parseCart)
 }
 
-export async function addToCart(sku: string, quantity: number, confirmationId: string): Promise<Cart> {
+export async function addToCart(sku: string, quantity: number, confirmationId: string): Promise<CartSnapshot> {
   let writeSession: string | undefined
   const cart = await sessionRequestFor('/cart', parseCart, { sku, quantity, confirmed: true, confirmationId }, (currentSession) => {
     writeSession = currentSession

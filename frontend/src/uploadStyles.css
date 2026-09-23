@@ -1,0 +1,17 @@
+.upload-panel { margin-block: 12px; padding: 10px; border: 1px solid #71838e; border-radius: 4px; background: #fff; color: #293d49; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.upload-panel summary { min-height: 44px; padding: 8px 4px; cursor: pointer; font-weight: 700; color: #214e68; }
+.upload-panel summary svg { vertical-align: middle; }
+.upload-panel :is(button, input:not([type="checkbox"])) { min-height: 44px; max-width: 100%; padding: 8px 10px; border: 1px solid #71838e; border-radius: 4px; color: #214e68; background: #fff; font: inherit; }
+.upload-panel input:not([type="checkbox"]) { display: block; width: 100%; min-width: 0; }
+.upload-panel button { font-weight: 700; white-space: normal; }
+.upload-panel :is(summary, input, button, [tabindex]):focus-visible { outline: 3px solid #214e68; outline-offset: 2px; }
+.upload-panel progress { display: block; width: 100%; accent-color: #3f7d9e; }
+.upload-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.upload-line { margin-top: 14px; padding-top: 12px; border-top: 1px solid #c5d2da; }
+.upload-line :is(h3, h4) { margin-block: 8px; }
+.upload-review { display: flex; align-items: start; gap: 8px; min-height: 44px; margin-block: 10px; cursor: pointer; }
+.upload-review input { flex: none; width: 20px; height: 20px; accent-color: #3f7d9e; }
+.upload-candidate { padding: 10px; border: 1px solid #c5d2da; border-radius: 4px; margin-block: 8px; }
+.reading-mode .upload-panel, .reading-mode .upload-candidate { color: #111; background: #fff; border: 2px solid #111; }
+.reading-mode .upload-panel :is(input, summary) { color: #111; font-size: 1.125rem; line-height: 1.6; }
+.reading-mode .upload-panel input:not([type="checkbox"]) { border: 2px solid #111; min-height: 48px; }

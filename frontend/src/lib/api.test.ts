@@ -21,13 +21,13 @@ afterEach(async () => {
   await backend?.close()
 })
 
-it('shares session creation between parallel reads and translates backend units', async () => {
+it('shares session creation between parallel reads and preserves backend units', async () => {
   const api = await import('./api')
   const [cart, result] = await Promise.all([api.getCart(), api.searchCatalog('1P C16, 4.5 kA, 2 штуки')])
   expect(transport.mock.calls.filter(([url]) => String(url).endsWith('/session'))).toHaveLength(1)
   expect(cart.items).toEqual([])
-  expect(result.quantity).toBe(2)
-  expect(result.products[0]).toMatchObject({ sku: 'DEMO-MCB-040', poles: '1P', curve: 'C', amperage: 16, breakingCapacity: '4.5 kA', price: 900, stock: 100 })
+  expect(result.quantity ?? result.filters?.quantity).toBe(2)
+  expect(result.exactMatch?.product).toMatchObject({ sku: 'DEMO-MCB-040', poles: 1, curve: 'C', amps: 16, breakingCapacityKa: 4.5, priceKzt: 900, stock: 100 })
 })
 
 it('recovers a stored session after a server restart and preserves it across client reloads', async () => {
@@ -77,8 +77,9 @@ it('accepts both API origins and full API prefixes without duplicating api in th
 it('opts into conversation responses and does not convert them into empty product searches', async () => {
   const api = await import('./api')
   const result = await api.searchCatalog('что по товарам есть')
-  expect(result.answerKind).toBe('conversation')
-  expect(result.products).toEqual([])
+  expect(result.intent).toBe('conversation')
+  expect(result.exactMatch).toBeNull()
+  expect(result.alternatives).toEqual([])
   const [, options] = transport.mock.calls.find(([url]) => String(url).endsWith('/search'))!
   expect(JSON.parse(String(options?.body))).toEqual({ query: 'что по товарам есть', conversation: true })
 })
@@ -98,7 +99,7 @@ it('aborts stalled requests and allows a later retry without automatic duplicate
     vi.useRealTimers()
   }
   transport.mockImplementation((input, options) => nativeFetch(new URL(String(input), backend.url), options))
-  expect((await api.searchCatalog('1P C16, 4.5 kA, 2 штуки')).products[0].sku).toBe('DEMO-MCB-040')
+  expect((await api.searchCatalog('1P C16, 4.5 kA, 2 штуки')).exactMatch?.product.sku).toBe('DEMO-MCB-040')
   expect((await api.getCart()).items).toEqual([])
 })
 

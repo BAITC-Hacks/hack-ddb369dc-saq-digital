@@ -37,6 +37,7 @@ export type ApiProduct = {
   breakingCapacityKa?: number | null
   priceKzt: number
   stock: number
+  stores?: { id: number; name: string; quantity: number }[]
   certificates?: { name: string; url: string }[]
   minimumOrderQuantity?: number
   properties?: Record<string, unknown>
@@ -51,7 +52,7 @@ export type ApiSearchResult = {
   exactMatch: { product: ApiProduct; canFulfill: boolean } | null
   alternatives: { product: ApiProduct; reason: string }[]
   sourceUrl?: string
-  notice?: 'AI_OFFLINE' | 'AI_UNAVAILABLE' | 'AI_CALL_LIMIT' | 'AI_RATE_LIMIT'
+  notice?: 'AI_OFFLINE' | 'AI_UNAVAILABLE' | 'AI_CALL_LIMIT' | 'AI_RATE_LIMIT' | 'CATALOG_LOADING' | 'CATALOG_UNAVAILABLE'
 }
 
 export type Cart = {
@@ -59,3 +60,9 @@ export type Cart = {
   totalPriceKzt: number
   cartUrl?: string
 }
+
+export type SearchResponse = Omit<ApiSearchResult, 'filters'> & {
+  filters: ({ quantity: number } & Partial<Omit<NonNullable<ApiSearchResult['filters']>, 'quantity'>>) | null
+}
+
+export type CartSnapshot = Omit<Cart, 'cartUrl'> & { cartUrl: string }
