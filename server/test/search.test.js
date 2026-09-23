@@ -9,6 +9,12 @@ test('parses the demo request with comma decimals and case insensitive units', (
   });
 });
 
+test('parses Cyrillic electrical notation', () => {
+  assert.deepEqual(parseQuery('Автомат 3Р С16, 10 кА, 8 шт.'), {
+    poles: 3, curve: 'C', amps: 16, breakingCapacityKa: 10, quantity: 8,
+  });
+});
+
 test('rejects missing and invalid specifications', () => {
   assert.throws(() => parseQuery('нужен автомат'), { code: 'MISSING_SPECIFICATIONS' });
   assert.throws(() => parseQuery('3P C16, 10 kA, 0 штук'), { code: 'INVALID_SPECIFICATIONS' });

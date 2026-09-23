@@ -28,3 +28,10 @@ test('rejects overstock without mutating cart', () => {
   assert.throws(() => cart.add({ sku: 'EXACT', quantity: 1, confirmed: true, confirmationId: 'b' }), { code: 'INSUFFICIENT_STOCK' });
   assert.equal(cart.snapshot().items[0].quantity, 2);
 });
+
+test('enforces a known minimum order multiple', () => {
+  const cart = new Cart([{ ...catalog[0], stock: 10, minimumOrderQuantity: 5 }]);
+  assert.throws(() => cart.add({ sku: 'EXACT', quantity: 3, confirmed: true, confirmationId: 'a' }), { code: 'INVALID_ORDER_MULTIPLE' });
+  assert.deepEqual(cart.snapshot().items, []);
+  assert.equal(cart.add({ sku: 'EXACT', quantity: 5, confirmed: true, confirmationId: 'a' }).items[0].quantity, 5);
+});
