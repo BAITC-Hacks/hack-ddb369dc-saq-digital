@@ -1,10 +1,114 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-afterEach(cleanup)
+import { addToCart, getCart, searchCatalog } from './lib/api'
 
-describe('EKT embedded assistant', () => {
-  it('appears as a chat widget over the EKT storefront context', () => { render(<App />); expect(screen.getByRole('dialog', { name: 'Чат с помощником EKT' })).toBeInTheDocument(); expect(screen.getByRole('heading', { name: 'Каталог продукции' })).toBeInTheDocument() })
-  it('blocks unavailable goods and requires confirmation before adding an alternative', async () => { render(<App />); fireEvent.click(screen.getByRole('button', { name: 'Demo' })); const choices = await screen.findAllByRole('button', { name: /Выбрать|Недоступно/ }); expect(choices[0]).toBeDisabled(); fireEvent.click(choices[1]); expect(screen.getByRole('dialog', { name: 'Добавить товар в корзину?' })).toBeInTheDocument(); expect(screen.getByRole('link', { name: /Корзина 0/ })).toBeInTheDocument(); fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' })); expect(screen.getByText('Товар добавлен в корзину.')).toBeInTheDocument(); expect(screen.getByRole('link', { name: 'Перейти к оформлению' })).toHaveAttribute('href', 'https://ekt.kz/personal/cart/') })
-  it('answers purchase-terms questions in the chat', async () => { render(<App />); fireEvent.change(screen.getByLabelText('Сообщение помощнику EKT'), { target: { value: 'Какие условия доставки и оплаты?' } }); fireEvent.click(screen.getByRole('button', { name: 'Отправить' })); expect(await screen.findByText(/доступен самовывоз/i)).toBeInTheDocument() })
+vi.mock('./lib/api', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./lib/api')>()
+  return { ...original, getCart: vi.fn(), searchCatalog: vi.fn(), addToCart: vi.fn() }
+})
+
+const emptyCart = { items: [], totalPriceKzt: 0, cartUrl: '/cart' }
+const filledCart = {
+  items: [{ sku: 'ALT-15', name: 'Автомат 3P C16 15 kA', quantity: 8, unitPriceKzt: 7900, lineTotalKzt: 63200 }],
+  totalPriceKzt: 63200,
+  cartUrl: '/cart',
+}
+const product = (sku: string, stock: number) => ({
+  sku, name: 'Автомат 3P C16 15 kA', poles: 3, curve: 'C' as const,
+  amps: 16, breakingCapacityKa: 15, stock, priceKzt: 7900,
+})
+const searchResult = {
+  intent: 'specifications' as const,
+  answer: 'Точного товара в нужном количестве нет. Найдены варианты.',
+  filters: { quantity: 8 },
+  exactMatch: { product: product('EXACT', 0), canFulfill: false },
+  alternatives: [{ product: product('ALT-15', 12), reason: 'Параметры совпадают.' }],
+}
+
+beforeEach(() => {
+  window.history.replaceState({}, '', '/')
+  vi.mocked(getCart).mockResolvedValue(emptyCart)
+  vi.mocked(searchCatalog).mockResolvedValue(searchResult)
+  vi.mocked(addToCart).mockResolvedValue(filledCart)
+})
+
+afterEach(() => {
+  cleanup()
+  vi.resetAllMocks()
+  window.history.replaceState({}, '', '/')
+})
+
+describe('EKT assistant integration', () => {
+  it('loads the session cart and searches without modifying it', async () => {
+    render(<App />)
+    expect(await screen.findByRole('link', { name: /Корзина 0/ })).toHaveAttribute('href', '/cart')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    expect(await screen.findByText('Параметры совпадают.')).toBeInTheDocument()
+    expect(searchCatalog).toHaveBeenCalledWith(expect.stringContaining('3P C16'))
+    expect(screen.getByRole('button', { name: /Недоступно/ })).toBeDisabled()
+    expect(addToCart).not.toHaveBeenCalled()
+  })
+
+  it('adds only after confirmation and uses the API cartUrl', async () => {
+    vi.mocked(addToCart).mockResolvedValue({ ...filledCart, cartUrl: '/checkout-cart' })
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Выбрать/ }))
+    expect(addToCart).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' }))
+    expect(await screen.findByRole('heading', { name: 'Корзина' })).toBeInTheDocument()
+    expect(window.location.pathname).toBe('/checkout-cart')
+    expect(screen.getByRole('link', { name: /Корзина 1/ })).toHaveAttribute('href', '/checkout-cart')
+    expect(addToCart).toHaveBeenCalledWith('ALT-15', 8, expect.any(String))
+  })
+
+  it('reuses the confirmation ID if a cart request must be retried', async () => {
+    vi.mocked(addToCart).mockRejectedValueOnce(new Error('connection lost')).mockResolvedValueOnce(filledCart)
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Выбрать/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' }))
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
+    expect(await screen.findByRole('heading', { name: 'Корзина' })).toBeInTheDocument()
+    expect(vi.mocked(addToCart).mock.calls[1][2]).toBe(vi.mocked(addToCart).mock.calls[0][2])
+  })
+
+  it('renders the server cart at the route returned by cartUrl', async () => {
+    window.history.replaceState({}, '', '/cart')
+    vi.mocked(getCart).mockResolvedValue(filledCart)
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Корзина' })).toBeInTheDocument()
+    expect(screen.getByText('ALT-15')).toBeInTheDocument()
+    expect(screen.getAllByText(/63\s?200/)).toHaveLength(2)
+  })
+
+  it('does not overwrite a confirmed cart with an older GET response', async () => {
+    let finishInitialCart!: (cart: typeof emptyCart) => void
+    vi.mocked(getCart).mockReturnValue(new Promise((resolve) => { finishInitialCart = resolve }))
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Выбрать/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' }))
+    expect(await screen.findByText('ALT-15')).toBeInTheDocument()
+
+    await act(async () => { finishInitialCart(emptyCart) })
+    expect(screen.getByText('ALT-15')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Корзина 1/ })).toBeInTheDocument()
+  })
+
+  it('shows purchase terms from the API and its source', async () => {
+    vi.mocked(searchCatalog).mockResolvedValue({
+      intent: 'purchase_terms', answer: 'Условия оплаты опубликованы на сайте.',
+      sourceUrl: 'https://ekt.kz/about/information/', filters: null, exactMatch: null, alternatives: [],
+    })
+    render(<App />)
+    fireEvent.change(screen.getByLabelText('Сообщение помощнику EKT'), { target: { value: 'Как оплатить заказ?' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+    expect(await screen.findByText('Условия оплаты опубликованы на сайте.')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Источник условий' })).toHaveAttribute('href', 'https://ekt.kz/about/information/')
+  })
 })

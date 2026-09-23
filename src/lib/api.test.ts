@@ -55,6 +55,16 @@ describe('assistant API client', () => {
   it('accepts only local frontend cart routes', () => {
     expect(frontendCartUrl('/cart')).toBe('/cart')
     expect(() => frontendCartUrl('//example.com/cart')).toThrow('Некорректная ссылка')
+    expect(() => frontendCartUrl('/\\example.com/cart')).toThrow('Некорректная ссылка')
     expect(() => frontendCartUrl('javascript:alert(1)')).toThrow('Некорректная ссылка')
+  })
+
+  it('rejects an unsafe cartUrl returned by the API', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(json({ sessionId: 'session-3' }, 201))
+      .mockResolvedValueOnce(json({ items: [], totalPriceKzt: 0, cartUrl: '//example.com/cart' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getCart()).rejects.toThrow('Некорректная ссылка')
   })
 })

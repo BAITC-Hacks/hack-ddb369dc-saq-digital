@@ -54,7 +54,7 @@ async function withSession<T>(operation: (sessionId: string) => Promise<T>): Pro
     return await operation(sessionId)
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 401) throw error
-    sessionStorage.removeItem(sessionKey)
+    if (sessionStorage.getItem(sessionKey) === sessionId) sessionStorage.removeItem(sessionKey)
     return operation(await ensureSession())
   }
 }
@@ -65,18 +65,23 @@ export function searchCatalog(query: string): Promise<SearchResponse> {
   }, sessionId))
 }
 
-export function getCart(): Promise<CartSnapshot> {
-  return withSession((sessionId) => request('/cart', {}, sessionId))
+export async function getCart(): Promise<CartSnapshot> {
+  const cart = await withSession<CartSnapshot>((sessionId) => request('/cart', {}, sessionId))
+  frontendCartUrl(cart.cartUrl)
+  return cart
 }
 
-export function addToCart(sku: string, quantity: number, confirmationId: string): Promise<CartSnapshot> {
-  return withSession((sessionId) => request('/cart', {
+export async function addToCart(sku: string, quantity: number, confirmationId: string): Promise<CartSnapshot> {
+  const cart = await withSession<CartSnapshot>((sessionId) => request('/cart', {
     method: 'POST', body: JSON.stringify({ sku, quantity, confirmed: true, confirmationId }),
   }, sessionId))
+  frontendCartUrl(cart.cartUrl)
+  return cart
 }
 
 export function frontendCartUrl(cartUrl: string): string {
   if (!cartUrl.startsWith('/') || cartUrl.startsWith('//')) throw new ApiError('Некорректная ссылка на корзину.', 0)
   const url = new URL(cartUrl, window.location.origin)
+  if (url.origin !== window.location.origin) throw new ApiError('Некорректная ссылка на корзину.', 0)
   return `${url.pathname}${url.search}${url.hash}`
 }
