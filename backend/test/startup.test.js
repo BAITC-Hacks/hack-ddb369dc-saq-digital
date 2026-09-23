@@ -21,6 +21,52 @@ async function waitForHealth(base, predicate) {
   assert.fail('Backend did not reach the expected catalog state');
 }
 
+test('failed initial import retries automatically and publishes recovered catalog', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'ekt-recovery-'));
+  let unavailable = true;
+  const partner = createServer((request, response) => {
+    if (unavailable) { response.writeHead(503).end(); return; }
+    const url = new URL(request.url, 'http://localhost');
+    response.setHeader('Content-Type', 'application/json');
+    response.end(JSON.stringify(url.pathname.endsWith('/detail')
+      ? { id: 1, article: 'RECOVERED-1', name: 'Recovered product', price: 1500, quantity: 3 }
+      : { page: Number(url.searchParams.get('page')), per_page: 20, count: 1, items: [{ id: 1 }] }));
+  }).listen(0);
+  await once(partner, 'listening');
+  const reservation = createServer().listen(0);
+  await once(reservation, 'listening');
+  const port = reservation.address().port;
+  await new Promise((resolve) => reservation.close(resolve));
+  const child = spawn(process.execPath, [fileURLToPath(new URL('../src/index.js', import.meta.url))], {
+    env: { ...process.env, PORT: String(port), APP_MODE: 'live', OPENAI_API_KEY: '',
+      EKT_API_USERNAME: 'test', EKT_API_PASSWORD: 'test',
+      EKT_PRODUCT_DETAIL_URL: `http://127.0.0.1:${partner.address().port}/api/products/detail`,
+      EKT_CATALOG_CACHE_PATH: join(directory, 'catalog.json') }, stdio: 'ignore',
+  });
+  const closed = once(child, 'close');
+  try {
+    const base = `http://127.0.0.1:${port}`;
+    const failed = await waitForHealth(base, (health) => health.catalog.status === 'failed');
+    assert.equal(failed.catalog.upstreamStatus, 503);
+    const remaining = Date.parse(failed.catalog.nextRetryAt) - Date.now();
+    assert.ok(remaining > 0 && remaining <= 30000);
+    unavailable = false;
+    await delay(remaining + 100);
+    const recovered = await waitForHealth(base, (health) => health.catalog.cacheSaved);
+    assert.equal(recovered.catalog.status, 'ready');
+    assert.equal(recovered.catalog.products, 1);
+    assert.equal(recovered.catalog.refreshError, undefined);
+    assert.equal(recovered.catalog.nextRetryAt, undefined);
+    const saved = JSON.parse(await readFile(join(directory, 'catalog.json'), 'utf8'));
+    assert.equal(saved.catalog[0].sku, 'RECOVERED-1');
+  } finally {
+    child.kill(); await closed;
+    partner.closeAllConnections();
+    await new Promise((resolve) => partner.close(resolve));
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('actual entrypoint starts during import and uses partner data even with no local catalog file', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ekt-startup-'));
   let releaseDetail;

@@ -22,6 +22,8 @@ const client = usePartner ? new PartnerClient({
 }) : undefined;
 const cachePath = process.env.EKT_CATALOG_CACHE_PATH || resolve(serverDirectory, configuration.partner?.cache?.path || '.cache/ekt-catalog.json');
 const cacheMaxAgeMs = configuration.partner?.cache?.maxAgeMs ?? 3600000;
+const retryDelayMs = configuration.partner?.retryDelayMs ?? 30000;
+if (!Number.isSafeInteger(retryDelayMs) || retryDelayMs < 1000) throw new Error('Partner retryDelayMs must be at least 1000.');
 if (!Number.isSafeInteger(cacheMaxAgeMs) || cacheMaxAgeMs < 1000) throw new Error('Partner cache maxAgeMs must be at least 1000.');
 const sourceKey = client && createHash('sha256').update(JSON.stringify([client.detailUrl, client.productsUrl, process.env.EKT_API_USERNAME])).digest('hex');
 const cached = client ? await readCatalogCache(cachePath, sourceKey) : null;
@@ -66,11 +68,15 @@ if (proxy) {
 createApp(catalog, { cartUrl: process.env.CART_URL || configuration.cartUrl, purchaseTerms, queryParser, uploads: configuration.uploads, partnerClient: client, staticDirectory, catalogState, resourceLimits: configuration.resourceLimits, trustProxy: proxy?.isTrusted || configuration.trustProxy }).listen(port, () => console.log(`EKT assistant is listening on port ${port}${staticDirectory ? ' (API + frontend)' : ' (API)'}`));
 
 if (usePartner) {
+  let refreshFailures = 0;
   const scheduleRefresh = (delayMs) => setTimeout(() => void updateCatalog(), delayMs).unref();
   async function updateCatalog() {
     if (catalogState.refreshing) return;
     Object.assign(catalogState, { refreshing: true, stale: catalog.length > 0 });
     delete catalogState.refreshError;
+    delete catalogState.nextRetryAt;
+    delete catalogState.upstreamStatus;
+    if (!catalog.length) catalogState.status = 'loading';
     for (const key of ['pages', 'listed', 'completed', 'failed']) delete catalogState[key];
     console.log('Updating the EKT catalog in the background. A saved catalog remains available during the import.');
     try {
@@ -88,6 +94,7 @@ if (usePartner) {
       catalog.length = 0;
       for (const product of result.catalog) catalog.push(product);
       const loadedAt = new Date().toISOString();
+      refreshFailures = 0;
       Object.assign(catalogState, { status: 'ready', products: catalog.length, failed: result.failed, loadedAt, cached: false, stale: false });
       try {
         await writeCatalogCache(cachePath, sourceKey, { catalog, loadedAt });
@@ -97,14 +104,19 @@ if (usePartner) {
         console.warn('EKT catalog is ready, but its disk cache could not be saved. Check cache directory permissions.');
       }
       console.log(`EKT catalog ready: ${catalog.length} real products; excluded: ${result.failed}.`);
-    } catch {
+    } catch (error) {
+      refreshFailures += 1;
       catalogState.status = catalog.length ? 'ready' : 'failed';
       catalogState.refreshError = 'CATALOG_REFRESH_FAILED';
+      if (error.code === 'PARTNER_HTTP_ERROR') catalogState.upstreamStatus = error.status;
       // Keep the previous complete snapshot and never log credentials/provider payloads.
       console.error(catalog.length ? 'EKT refresh failed. The previous catalog snapshot remains available.' : 'EKT catalog could not be loaded. Chat and purchase terms remain available.');
+      if (catalogState.upstreamStatus) console.error(`Partner API HTTP ${catalogState.upstreamStatus}. Automatic retry scheduled.`);
     } finally {
       catalogState.refreshing = false;
-      scheduleRefresh(cacheMaxAgeMs);
+      const delay = refreshFailures ? Math.min(retryDelayMs * 2 ** Math.min(refreshFailures - 1, 4), 300000) : cacheMaxAgeMs;
+      if (refreshFailures) catalogState.nextRetryAt = new Date(Date.now() + delay).toISOString();
+      scheduleRefresh(delay);
     }
   }
   if (cached && !catalogState.stale) scheduleRefresh(Math.max(1, cacheMaxAgeMs - (Date.now() - Date.parse(cached.loadedAt))));

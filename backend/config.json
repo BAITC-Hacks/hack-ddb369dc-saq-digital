@@ -11,6 +11,7 @@
     "maxPages": 2000,
     "concurrency": 4,
     "timeoutMs": 5000,
+    "retryDelayMs": 30000,
     "cache": {
       "path": ".cache/ekt-catalog.json",
       "maxAgeMs": 3600000

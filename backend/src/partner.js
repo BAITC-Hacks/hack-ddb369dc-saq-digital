@@ -22,7 +22,7 @@ export class PartnerClient {
       headers: { Authorization: this.authorization },
       signal: AbortSignal.timeout(this.timeoutMs),
     });
-    if (!response.ok) throw new Error(`Partner API returned HTTP ${response.status}`);
+    if (!response.ok) throw Object.assign(new Error(`Partner API returned HTTP ${response.status}`), { code: 'PARTNER_HTTP_ERROR', status: response.status });
     return response.json();
   }
 
