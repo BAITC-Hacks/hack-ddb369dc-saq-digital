@@ -33,7 +33,7 @@ try {
   if (error.code !== 'ENOENT') throw error;
   staticDirectory = undefined;
 }
-createApp(catalog, { cartUrl: process.env.CART_URL || configuration.cartUrl, purchaseTerms, queryParser, staticDirectory, catalogState }).listen(port, () => console.log(`EKT assistant is listening on port ${port}${staticDirectory ? ' (API + frontend)' : ' (API)'}`));
+createApp(catalog, { cartUrl: process.env.CART_URL || configuration.cartUrl, purchaseTerms, queryParser, uploads: configuration.uploads, staticDirectory, catalogState }).listen(port, () => console.log(`EKT assistant is listening on port ${port}${staticDirectory ? ' (API + frontend)' : ' (API)'}`));
 
 if (usePartner) {
   const client = new PartnerClient({
