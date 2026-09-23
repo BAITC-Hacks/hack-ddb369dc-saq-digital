@@ -89,6 +89,16 @@ function remember(context, query, result, retainHistory = true) {
   return result;
 }
 
+function conversationCatalog(catalog, query, context) {
+  const words = query.toLocaleLowerCase('ru').match(/[\p{L}\p{N}]{3,}/gu) ?? [];
+  const ranked = catalog.map((product, index) => {
+    const text = `${product.name} ${product.brand ?? ''}`.toLocaleLowerCase('ru');
+    const score = Number(product.sku === context.lastSku) * 100 + words.filter((word) => text.includes(word)).length;
+    return { product, index, score };
+  });
+  return ranked.sort((a, b) => b.score - a.score || a.index - b.index).slice(0, 20).map(({ product }) => product);
+}
+
 export async function answerConversation(catalog, query, terms, context = {}, queryParser) {
   if (query.length > 4000) throw new ApiError(400, 'QUERY_TOO_LONG', 'Сократите сообщение до 4000 символов.');
   if (context.lastConversation?.query === query.trim()) return context.lastConversation.result;
@@ -110,8 +120,9 @@ export async function answerConversation(catalog, query, terms, context = {}, qu
   if (queryParser) {
     try {
       const reply = await queryParser.reply(query, {
-        site: 'EKT Match — демо помощника магазина электротехники. Доступный каталог синтетический. Можно искать товары и добавлять их в локальную корзину после кнопки подтверждения. Реальных заказов, оплаты, личного кабинета и резервирования склада в демо нет. Цены в тенге. Категории витрины без товаров в переданном каталоге не подтверждают их наличие.',
-        catalog: catalog.map(({ sku, name, brand, poles, curve, amps, breakingCapacityKa, priceKzt, stock, certificates }) =>
+        site: `EKT Match — помощник магазина электротехники. ${catalog.length && catalog.every((product) => product.id) ? 'Данные товаров загружены из API ekt.kz при запуске сервера.' : 'Используется локальный каталог.'} Можно искать товары и добавлять их в локальную корзину после кнопки подтверждения. Реальных заказов, оплаты, личного кабинета и резервирования склада в прототипе нет. Цены в тенге. Передан только фрагмент каталога: отсутствие товара в этом фрагменте не означает его отсутствие в магазине. Категории витрины без товаров в переданных данных не подтверждают их наличие.`,
+        catalogSize: catalog.length,
+        catalog: conversationCatalog(catalog, query, context).map(({ sku, name, brand, poles, curve, amps, breakingCapacityKa, priceKzt, stock, certificates }) =>
           ({ sku, name, brand, poles, curve, amps, breakingCapacityKa, priceKzt, stock, certificates })),
         purchaseTerms: terms ?? null,
         currentProduct: context.lastSku ?? null,
@@ -147,5 +158,5 @@ export async function answerConversation(catalog, query, terms, context = {}, qu
     }
   }
 
-  return remember(context, query, conversationalAnswer(`Сейчас включён локальный режим. В доступном каталоге ${catalog.length} позиций автоматических выключателей. Могу проверить артикул, подобрать автомат по характеристикам и показать условия оплаты или доставки. ${clarification}`, { notice: 'AI_OFFLINE' }));
+  return remember(context, query, conversationalAnswer(`AI-диалог сейчас отключён. В доступном каталоге ${catalog.length} товаров. Могу проверить артикул, подобрать автомат по характеристикам и показать условия оплаты или доставки. ${clarification}`, { notice: 'AI_OFFLINE' }));
 }

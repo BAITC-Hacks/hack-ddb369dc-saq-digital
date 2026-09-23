@@ -32,7 +32,17 @@ export function createApp(catalog, options = {}) {
     next();
   });
 
-  app.get('/api/health', (_request, response) => response.json({ status: 'ok' }));
+  app.get('/api/health', (_request, response) => response.json({ status: 'ok', ...(options.catalogState && { catalog: options.catalogState }) }));
+
+  app.use('/api', (_request, response, next) => {
+    if (!options.catalogState || options.catalogState.status === 'ready') return next();
+    const loading = options.catalogState.status === 'loading';
+    if (loading) response.set('Retry-After', '10');
+    response.status(503).json({ error: {
+      code: loading ? 'CATALOG_LOADING' : 'CATALOG_UNAVAILABLE',
+      message: loading ? 'Каталог ekt.kz загружается. Повторите запрос через некоторое время.' : 'Каталог ekt.kz сейчас недоступен. Попробуйте позже.',
+    } });
+  });
 
   app.post('/api/search', async (request, response) => {
     const { query, conversation } = parseBody(searchBody, request.body);

@@ -54,6 +54,27 @@ test('product inquiries preserve requested quantity when technical ratings are u
 
 const noFilters = { poles: null, curve: null, amps: null, breakingCapacityKa: null, quantity: null };
 
+test('large partner catalogs use bounded relevant AI context and identify their real source', async () => {
+  const products = Array.from({ length: 500 }, (_, i) => ({ ...catalog[0], id: i + 1, sku: `ITEM-${i}`, article: `ITEM-${i}`, name: `Товар ${i}` }));
+  products[499].name = 'Прожектор уличный';
+  await answerConversation(products, 'Какие прожекторы есть?', terms, { lastSku: 'ITEM-498' }, {
+    reply: async (_query, facts) => {
+      assert.equal(facts.catalogSize, 500);
+      assert.equal(facts.catalog.length, 20);
+      assert.equal(facts.catalog[0].sku, 'ITEM-498');
+      assert.match(facts.site, /API ekt.kz/);
+      assert.doesNotMatch(facts.site, /каталог синтетический/);
+      return { kind: 'answer', answer: 'Уточните артикул.', filters: noFilters };
+    },
+  });
+  await answerConversation(products, 'Нужен прожектор', terms, {}, {
+    reply: async (_query, facts) => {
+      assert.equal(facts.catalog[0].sku, 'ITEM-499');
+      return { kind: 'answer', answer: 'Есть прожектор.', filters: noFilters };
+    },
+  });
+});
+
 test('free-form catalogue questions use site context instead of demanding specifications', async () => {
   const context = {};
   let calls = 0;

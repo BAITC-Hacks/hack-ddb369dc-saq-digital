@@ -4,6 +4,11 @@
   "frontendDistPath": "../frontend/dist",
   "cartUrl": "/cart",
   "partnerDetailUrl": "https://ekt.kz/api/products/detail",
+  "partner": {
+    "maxPages": 2000,
+    "concurrency": 4,
+    "timeoutMs": 5000
+  },
   "openai": {
     "responsesUrl": "https://api.openai.com/v1/responses",
     "model": "gpt-4.1-mini",

@@ -31,6 +31,38 @@ async function getCart(base, sessionId) {
   return (await fetch(`${base}/api/cart`, { headers: { 'X-Session-Id': sessionId } })).json();
 }
 
+test('partner import exposes progress, blocks data operations, then publishes a complete catalog to new sessions', async () => {
+  const imported = [];
+  const catalogState = { status: 'loading', source: 'partner', products: 0 };
+  await withServer(async (base) => {
+    const health = await (await fetch(`${base}/api/health`)).json();
+    assert.equal(health.status, 'ok');
+    assert.equal(health.catalog.status, 'loading');
+    for (const path of ['/api/session', '/api/search', '/api/cart']) {
+      const blocked = await post(base, path, { query: 'EXACT' });
+      assert.equal(blocked.status, 503);
+      assert.equal(blocked.body.error.code, 'CATALOG_LOADING');
+    }
+    imported.push(...catalog);
+    Object.assign(catalogState, { status: 'ready', products: imported.length });
+    const { body: { sessionId } } = await post(base, '/api/session', {});
+    assert.ok(sessionId);
+    const found = await post(base, '/api/search', { query: 'SKU-EXACT' }, sessionId);
+    assert.equal(found.status, 200);
+    assert.equal(found.body.exactMatch.product.sku, 'EXACT');
+    const added = await post(base, '/api/cart', { sku: 'EXACT', quantity: 1, confirmed: true, confirmationId: 'import-ready' }, sessionId);
+    assert.equal(added.body.items[0].quantity, 1);
+  }, { catalogState }, imported);
+});
+
+test('a failed live import returns an explicit unavailable error instead of demo products', async () => {
+  await withServer(async (base) => {
+    const response = await post(base, '/api/search', { query: 'SKU-EXACT' });
+    assert.equal(response.status, 503);
+    assert.equal(response.body.error.code, 'CATALOG_UNAVAILABLE');
+  }, { catalogState: { status: 'failed', source: 'partner', products: 0 } }, []);
+});
+
 test('health checks require no session, make no AI calls, and preserve cart state', async () => {
   await withServer(async (base) => {
     const { body: { sessionId } } = await post(base, '/api/session', {});
