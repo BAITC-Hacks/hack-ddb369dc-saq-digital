@@ -67,8 +67,11 @@ function App() {
       <label className="site-search"><MagnifyingGlass size={20} /><input placeholder="Поиск" /></label>
       <div className="header-actions"><a href="#compare">Сравнить</a><a href="#favorites"><Heart size={18} /> Избранное</a><a href="https://ekt.kz/personal/cart/"><ShoppingCart size={19} /> Корзина <b>{cart ? 1 : 0}</b></a></div>
     </header>
-    <div className="category-bar"><a href="#catalog">Каталог продукции</a><a href="#cable">Кабель / Провод</a><a href="#light">Светильники / Лампы</a><a href="#low">Низковольтная аппаратура</a><a href="#tools">Монтаж и инструмент</a></div>
-    <section className="catalog" id="catalog"><p className="crumbs">Главная / Каталог продукции / Низковольтная аппаратура</p><h1>Автоматические выключатели</h1><div className="catalog-body"><aside><strong>Фильтры</strong><p>Производитель</p><label><input type="checkbox" /> EKT</label><label><input type="checkbox" /> IEK</label><p>Номинальный ток</p><label><input type="checkbox" /> 16 A</label><label><input type="checkbox" /> 32 A</label></aside><div className="products"><article><div><Package size={42} weight="thin" /></div><p>Автоматический выключатель</p><strong>3P C16, 10 kA</strong><span>12 490 ₸</span><button type="button">В корзину</button></article><article><div><Package size={42} weight="thin" /></div><p>Автоматический выключатель</p><strong>3P C25, 10 kA</strong><span>13 100 ₸</span><button type="button">В корзину</button></article></div></div></section><Widget cartCount={cart ? 1 : 0} add={(product, quantity) => setCart({ product, quantity })} />
+    <section className="showcase" aria-label="Специальные предложения">
+      <article className="showcase-main"><div className="promo-copy"><p className="promo-brand">Промрукав</p><h1>МОНТАЖНЫЕ <strong>РЕШЕНИЯ</strong></h1><span>ЖАНА / НОВИНКА!</span></div><div className="product-assembly" aria-hidden="true"><i className="assembly-box" /><i className="assembly-rail" /><i className="assembly-cover" /><i className="assembly-tube" /></div></article>
+      <article className="showcase-side"><span>CHiNT</span><div className="breaker-pair" aria-hidden="true"><i /><i /></div><small>Низковольтная аппаратура</small></article>
+    </section>
+    <section className="catalog" id="catalog"><h2>Каталог продукции</h2><div className="category-bar"><a href="#cable">Кабель / Провод</a><a href="#light">Светильники / Лампы</a><a href="#low">Низковольтная аппаратура</a><a href="#tools">Монтаж и инструмент</a><a href="#cabinet">Шкафы / Щиты</a></div></section><Widget cartCount={cart ? 1 : 0} add={(product, quantity) => setCart({ product, quantity })} />
   </main>
 }
 
