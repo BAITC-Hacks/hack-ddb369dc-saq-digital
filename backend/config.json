@@ -7,8 +7,8 @@
   "openai": {
     "responsesUrl": "https://api.openai.com/v1/responses",
     "model": "gpt-4.1-mini",
-    "maxOutputTokens": 256,
+    "maxOutputTokens": 768,
     "maxCalls": 20,
-    "timeoutMs": 10000
+    "timeoutMs": 15000
   }
 }

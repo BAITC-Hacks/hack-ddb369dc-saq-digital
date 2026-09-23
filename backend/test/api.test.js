@@ -173,6 +173,31 @@ test('OpenAI outages preserve the local clarification response and existing cart
   }, { queryParser });
 });
 
+test('conversation is opt-in, isolated by session, and cannot write to the cart', async () => {
+  const histories = [];
+  await withServer(async (base) => {
+    const { body: { sessionId: first } } = await post(base, '/api/session', {});
+    const { body: { sessionId: second } } = await post(base, '/api/session', {});
+    for (const [sessionId, query] of [[first, 'что по товарам есть'], [first, 'а подробнее'], [second, 'что по товарам есть']]) {
+      const result = await post(base, '/api/search', { query, conversation: true }, sessionId);
+      assert.equal(result.status, 200);
+      assert.equal(result.body.intent, 'conversation');
+      assert.match(result.body.answer, /каталог/);
+      assert.deepEqual((await getCart(base, sessionId)).items, []);
+    }
+    assert.deepEqual(histories, [0, 2, 0]);
+    const legacy = await post(base, '/api/search', { query: 'неполный запрос' });
+    assert.equal(legacy.status, 422);
+    assert.equal(legacy.body.error.code, 'MISSING_SPECIFICATIONS');
+  }, { queryParser: {
+    extract: async () => { throw new Error('Missing specifications'); },
+    reply: async (_query, context) => {
+      histories.push(context.history.length);
+      return { kind: 'answer', answer: 'Вот доступный каталог.', filters: { poles: null, curve: null, amps: null, breakingCapacityKa: null, quantity: null } };
+    },
+  } });
+});
+
 test('team catalog supports all ten demo queries in one session and confirmed checkout', async () => {
   const products = await loadCatalog(fileURLToPath(new URL('../../data/catalog.json', import.meta.url)));
   const scenarios = [

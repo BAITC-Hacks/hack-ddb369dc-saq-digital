@@ -73,3 +73,79 @@ export function answerQuery(catalog, query, terms, context, filtersOverride) {
       : 'По заданным характеристикам товар в нужном количестве не найден.';
   return { intent: 'specifications', answer, ...result };
 }
+
+function conversationalAnswer(answer, extra = {}) {
+  return { intent: 'conversation', answer, filters: null, exactMatch: null, alternatives: [], ...extra };
+}
+
+function remember(context, query, result, retainHistory = true) {
+  if (retainHistory) {
+    context.history = [...(context.history ?? []),
+      { role: 'user', content: query },
+      { role: 'assistant', content: result.answer },
+    ].slice(-8);
+  }
+  context.lastConversation = result.notice ? null : { query: query.trim(), result };
+  return result;
+}
+
+export async function answerConversation(catalog, query, terms, context = {}, queryParser) {
+  if (query.length > 4000) throw new ApiError(400, 'QUERY_TOO_LONG', 'Сократите сообщение до 4000 символов.');
+  if (context.lastConversation?.query === query.trim()) return context.lastConversation.result;
+  let clarification;
+  try {
+    // A pending selection must not be interpreted as a question about the previous SKU.
+    const localContext = context.pendingFilters ? undefined : context;
+    const result = answerQuery(catalog, query, terms, localContext);
+    if (result.intent !== 'purchase_terms') {
+      context.pendingFilters = null;
+      if (result.exactMatch) context.lastSku = result.exactMatch.product.sku;
+    }
+    return remember(context, query, result);
+  } catch (error) {
+    if (error.code !== 'MISSING_SPECIFICATIONS') throw error;
+    clarification = error.message;
+  }
+
+  if (queryParser) {
+    try {
+      const reply = await queryParser.reply(query, {
+        site: 'EKT Match — демо помощника магазина электротехники. Доступный каталог синтетический. Можно искать товары и добавлять их в локальную корзину после кнопки подтверждения. Реальных заказов, оплаты, личного кабинета и резервирования склада в демо нет. Цены в тенге. Категории витрины без товаров в переданном каталоге не подтверждают их наличие.',
+        catalog: catalog.map(({ sku, name, brand, poles, curve, amps, breakingCapacityKa, priceKzt, stock, certificates }) =>
+          ({ sku, name, brand, poles, curve, amps, breakingCapacityKa, priceKzt, stock, certificates })),
+        purchaseTerms: terms ?? null,
+        currentProduct: context.lastSku ?? null,
+        knownFilters: context.pendingFilters ?? null,
+        history: context.history ?? [],
+      });
+      if (reply.kind === 'out_of_scope') {
+        return remember(context, query, conversationalAnswer('Я помогаю с товарами и возможностями этого сайта: ассортиментом, характеристиками, наличием, ценами, корзиной, оплатой и доставкой. Какой вопрос по магазину вас интересует?'), false);
+      }
+      if (reply.kind === 'search') {
+        if (Object.values(reply.filters).every((value) => value !== null)) {
+          const result = answerQuery(catalog, query, terms, undefined, reply.filters);
+          context.pendingFilters = null;
+          if (result.exactMatch) context.lastSku = result.exactMatch.product.sku;
+          return remember(context, query, result);
+        }
+        context.pendingFilters = reply.filters;
+        const labels = { poles: 'число полюсов', curve: 'характеристику срабатывания (B, C или D)', amps: 'номинальный ток в амперах', breakingCapacityKa: 'отключающую способность в kA', quantity: 'количество штук' };
+        const missing = Object.entries(reply.filters).filter(([, value]) => value === null).map(([name]) => labels[name]);
+        return remember(context, query, conversationalAnswer(`Для подбора осталось уточнить: ${missing.join(', ')}. Напишите недостающие параметры, остальные я запомнил.`));
+      }
+      if (!reply.answer.trim()) throw new Error('Empty assistant answer');
+      return remember(context, query, conversationalAnswer(reply.answer.trim()));
+    } catch (error) {
+      // Never log the key, user input, provider response body, or entire error object.
+      const code = error.code === 'AI_CALL_LIMIT' ? 'AI_CALL_LIMIT' : 'AI_UNAVAILABLE';
+      const reason = ['ZodError', 'SyntaxError', 'TimeoutError', 'TypeError'].includes(error.name) ? error.name : 'Invalid response';
+      console.warn(`Assistant request failed: ${code} (${Number.isInteger(error.status) ? `HTTP ${error.status}` : reason}).`);
+      const message = code === 'AI_CALL_LIMIT'
+        ? 'Лимит AI-запросов для этого запуска исчерпан. Локальный поиск по артикулу и характеристикам продолжает работать.'
+        : 'Не удалось получить ответ AI-помощника. Попробуйте ещё раз или воспользуйтесь локальным поиском по артикулу и характеристикам.';
+      return remember(context, query, conversationalAnswer(`${message} ${clarification}`, { notice: code }));
+    }
+  }
+
+  return remember(context, query, conversationalAnswer(`Сейчас включён локальный режим. В доступном каталоге ${catalog.length} позиций автоматических выключателей. Могу проверить артикул, подобрать автомат по характеристикам и показать условия оплаты или доставки. ${clarification}`, { notice: 'AI_OFFLINE' }));
+}

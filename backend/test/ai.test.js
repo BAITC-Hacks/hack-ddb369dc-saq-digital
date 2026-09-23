@@ -146,3 +146,45 @@ test('a zero call budget never sends a request', () => {
   assert.throws(() => parser.extract('автомат'), /limit/);
   assert.equal(parser.calls, 0);
 });
+
+test('dialogue sends site facts and bounded session history, with a context-aware cache', async () => {
+  const unknown = Object.fromEntries(Object.keys(filters).map((key) => [key, null]));
+  const context = {
+    catalog: [{ sku: 'LOCAL', priceKzt: 500, stock: 2 }],
+    history: [{ role: 'user', content: 'Нужен автомат' }, { role: 'assistant', content: 'Какие параметры?' }],
+    knownFilters: { ...unknown, poles: 3 },
+  };
+  let calls = 0;
+  const parser = new OpenAIQueryParser({ ...settings, maxCalls: 3, fetcher: async (_url, options) => {
+    calls += 1;
+    const body = JSON.parse(options.body);
+    assert.equal(body.text.format.name, 'site_assistant');
+    assert.deepEqual(body.text.format.schema.required, ['kind', 'answer', 'filters']);
+    assert.equal(body.input[0].role, 'developer');
+    assert.match(body.input[0].content, /LOCAL/);
+    assert.equal(body.input[1].content, 'Нужен автомат');
+    assert.equal(body.input.at(-1).content, 'Что есть?');
+    assert.match(body.instructions, /out_of_scope/);
+    assert.equal(body.store, false);
+    return response(completed(JSON.stringify({ kind: 'answer', answer: 'Есть товары из каталога.', filters: unknown })));
+  } });
+  assert.equal((await parser.reply('Что есть?', context)).kind, 'answer');
+  await parser.reply('Что есть?', context);
+  assert.equal(calls, 1);
+  await parser.reply('Что есть?', { ...context, knownFilters: null });
+  assert.equal(calls, 2, 'Different conversation context must not reuse an answer');
+});
+
+test('dialogue accepts partial parameters but rejects invalid actions and invented fields', async () => {
+  const partial = { ...filters, quantity: null };
+  for (const payload of [
+    { kind: 'search', answer: 'Сколько штук нужно?', filters: partial },
+    { kind: 'add_to_cart', answer: 'Добавлено', filters },
+    { kind: 'search', answer: 'Готово', filters, sku: 'MADE-UP' },
+    { kind: 'search', answer: 'Готово', filters: { ...filters, quantity: -1 } },
+  ]) {
+    const parser = new OpenAIQueryParser({ ...settings, fetcher: async () => response(completed(JSON.stringify(payload))) });
+    if (payload.filters.quantity === null) assert.deepEqual((await parser.reply('нужен автомат', {})).filters, partial);
+    else await assert.rejects(parser.reply('нужен автомат', {}));
+  }
+});
