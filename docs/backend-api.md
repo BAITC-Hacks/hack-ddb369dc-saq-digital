@@ -39,6 +39,8 @@ The file is a JSON array. The data team's 40-SKU demo catalog uses this format:
 
 The backend maps `breakingCapacity` to `breakingCapacityKa` and `price` to `priceKzt` in API responses. It also accepts full detail objects from the partner's `/api/products/detail?id=...` endpoint, with `id`, `article`, `name`, `price`, `quantity`, `properties`, and optional `stores`, `description`, `url`, `image`. For those, `article` becomes `sku`, `price` becomes `priceKzt`, and `quantity` becomes `stock`. An optional `certificates` array contains `{ "name": "...", "url": "https://..." }` entries when the data source has them. Never invent a certificate URL.
 
+Partner `stock`, warehouse quantities and nominal current may be fractional numbers and are not rounded. Missing, conflicting or nonpositive nominal current is represented by `amps: null` rather than dropping the entire product. Original properties remain available for inspection; invalid/conflicting ratings include `technicalIssue`. The cart request contract still requires positive integer quantities.
+
 Technical alternatives need verified `poles`, `curve`, `amps`, and `breakingCapacityKa`. The partner sample has conflicting current ratings in the name and properties; such a product is shown for article inquiries but excluded from automatic compatibility matching until corrected.
 
 ## Health

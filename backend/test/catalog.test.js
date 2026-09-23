@@ -26,6 +26,33 @@ test('normalizes partner detail and excludes conflicting electrical ratings', ()
   assert.equal(product.minimumOrderQuantity, 1);
 });
 
+test('preserves fractional partner inventory and electrical ratings without rounding', () => {
+  const product = normalizePartnerProduct({
+    id: 22412, article: 'PARTNER-CABLE', name: 'АВБШВ 4х240 1 кВ ГОСТ EKT', price: 100, quantity: 23652,
+    stores: [{ id: 3, name: 'Склад', quantity: 3953.1 }],
+  });
+  assert.equal(product.stock, 23652);
+  assert.equal(product.stores[0].quantity, 3953.1);
+  const fractional = normalizePartnerProduct({
+    id: 1, article: 'FRACTIONAL', name: 'Автомат 3P C0,5 10kA', price: 100, quantity: 2.5,
+    properties: { NOMINALNYY_TOK: '0,5 А' },
+  });
+  assert.equal(fractional.amps, 0.5);
+  assert.equal(fractional.stock, 2.5);
+  assert.equal(fractional.technicalIssue, undefined);
+});
+
+test('keeps a product with unrecognized zero nominal current but excludes it from automatic matching', () => {
+  const product = normalizePartnerProduct({
+    id: 1, article: 'UNKNOWN-RATING', name: 'Товар', price: 100, quantity: 4,
+    properties: { NOMINALNYY_TOK: '0 А' },
+  });
+  assert.equal(product.amps, null);
+  assert.equal(product.stock, 4);
+  assert.match(product.technicalIssue, /совместимость требует проверки/);
+  assert.equal(product.properties.NOMINALNYY_TOK, '0 А');
+});
+
 test('loads a local JSON catalog for offline mode', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'ekt-catalog-'));
   const path = join(directory, 'catalog.json');

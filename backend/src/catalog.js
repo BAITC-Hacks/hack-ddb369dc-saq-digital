@@ -10,15 +10,15 @@ export const productSchema = z.strictObject({
   brand: z.string().min(1).optional(),
   poles: z.number().int().min(1).max(4).nullable().optional(),
   curve: z.enum(['B', 'C', 'D']).nullable().optional(),
-  amps: z.number().int().positive().nullable().optional(),
+  amps: z.number().positive().nullable().optional(),
   breakingCapacityKa: z.number().positive().nullable().optional(),
   priceKzt: z.number().nonnegative(),
-  stock: z.number().int().nonnegative(),
+  stock: z.number().nonnegative(),
   description: z.string().nullable().optional(),
   url: z.url().nullable().optional(),
   image: z.url().nullable().optional(),
   properties: z.record(z.string(), z.unknown()).optional(),
-  stores: z.array(z.object({ id: z.number().int(), name: z.string(), quantity: z.number().int().nonnegative() })).optional(),
+  stores: z.array(z.object({ id: z.number().int(), name: z.string(), quantity: z.number().nonnegative() })).optional(),
   certificates: z.array(z.object({ name: z.string(), url: z.url() })).optional(),
   minimumOrderQuantity: z.number().int().positive().optional(),
   technicalIssue: z.string().optional(),
@@ -29,12 +29,12 @@ const partnerDetailSchema = z.object({
   name: z.string().min(1),
   article: z.string().min(1),
   price: z.number().nonnegative(),
-  quantity: z.number().int().nonnegative(),
+  quantity: z.number().nonnegative(),
   description: z.string().nullable().optional(),
   url: z.url().nullable().optional(),
   image: z.url().nullable().optional(),
   properties: z.record(z.string(), z.unknown()).optional(),
-  stores: z.array(z.object({ id: z.number().int(), name: z.string(), quantity: z.number().int().nonnegative() })).optional(),
+  stores: z.array(z.object({ id: z.number().int(), name: z.string(), quantity: z.number().nonnegative() })).optional(),
   certificates: z.array(z.object({ name: z.string(), url: z.url() })).optional(),
 }).passthrough();
 
@@ -80,19 +80,21 @@ export function normalizePartnerProduct(input) {
   const properties = raw.properties ?? {};
   const namePoles = readNumber(raw.name.match(/\b([1-4])\s*(?:[pр]|ф)(?=$|[^\p{L}])/iu)?.[1]);
   const propertyPoles = readNumber(properties.KOLICHESTVO_POLYUSOV);
-  const nameRating = raw.name.match(/(?<!\p{L})([BCDВСД])\s*(\d{1,3})(?=$|[^\p{L}\p{N}])/iu);
-  const nameAmps = readNumber(nameRating?.[2] ?? raw.name.match(/\b(\d{1,4})\s*[АA](?=$|[^\p{L}])/iu)?.[1]);
+  const nameRating = raw.name.match(/(?<!\p{L})([BCDВСД])\s*(\d{1,3}(?:[.,]\d+)?)(?=$|[^\p{L}\p{N}])/iu);
+  const nameAmps = readNumber(nameRating?.[2] ?? raw.name.match(/\b(\d{1,4}(?:[.,]\d+)?)\s*[АA](?=$|[^\p{L}])/iu)?.[1]);
   const propertyAmps = readNumber(properties.NOMINALNYY_TOK);
   const nameCapacity = readNumber(raw.name.match(/(\d+(?:[.,]\d+)?)\s*(?:kA|кА)(?=$|[^\p{L}])/iu)?.[1]);
   const propertyCapacity = readNumber(properties.NOMINALNAYA_OTKLYUCHAYUSHCHAYA_SPOSOBNOST);
   const poles = consistentValue(namePoles, propertyPoles);
-  const amps = consistentValue(nameAmps, propertyAmps);
+  const parsedAmps = consistentValue(nameAmps, propertyAmps);
+  const amps = parsedAmps > 0 ? parsedAmps : null;
   const breakingCapacityKa = consistentValue(nameCapacity, propertyCapacity);
   const technicalIssue = [
     namePoles !== null && propertyPoles !== null && namePoles !== propertyPoles,
     nameAmps !== null && propertyAmps !== null && nameAmps !== propertyAmps,
     nameCapacity !== null && propertyCapacity !== null && nameCapacity !== propertyCapacity,
-  ].some(Boolean) ? 'Характеристики в названии и свойствах расходятся; совместимость требует проверки.' : undefined;
+  ].some(Boolean) ? 'Характеристики в названии и свойствах расходятся; совместимость требует проверки.'
+    : parsedAmps !== null && parsedAmps <= 0 ? 'Не удалось определить положительный номинальный ток; совместимость требует проверки.' : undefined;
   const minimumOrderQuantity = readNumber(properties.KRATNOST_MIN);
 
   return productSchema.parse({
