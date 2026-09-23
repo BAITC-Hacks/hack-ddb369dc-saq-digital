@@ -38,7 +38,7 @@ export function answerQuery(catalog, query, terms, context, filtersOverride) {
   );
   if (product) {
     if (context) context.lastSku = product.sku;
-    const quantityMatch = query.match(/(?:^|\D)(\d+)\s*(?:шт\.?|штук|штуки|единиц)(?=$|[^\p{L}])/iu);
+    const quantityMatch = query.match(/(?:^|\D)(\d+)\s*(?:шт\.?|штук|штуки|штука|единиц)(?=$|[^\p{L}])/iu);
     const quantity = quantityMatch ? Number(quantityMatch[1]) : 1;
     if (!Number.isSafeInteger(quantity) || quantity <= 0) {
       throw new ApiError(422, 'INVALID_QUANTITY', 'Количество должно быть положительным целым числом.');

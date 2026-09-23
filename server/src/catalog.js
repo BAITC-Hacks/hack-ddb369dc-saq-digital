@@ -7,6 +7,7 @@ export const productSchema = z.strictObject({
   id: z.number().int().positive().optional(),
   article: z.string().min(1).optional(),
   name: z.string().min(1),
+  brand: z.string().min(1).optional(),
   poles: z.number().int().min(1).max(4).nullable().optional(),
   curve: z.enum(['B', 'C', 'D']).nullable().optional(),
   amps: z.number().int().positive().nullable().optional(),
@@ -36,6 +37,34 @@ const partnerDetailSchema = z.object({
   stores: z.array(z.object({ id: z.number().int(), name: z.string(), quantity: z.number().int().nonnegative() })).optional(),
   certificates: z.array(z.object({ name: z.string(), url: z.url() })).optional(),
 }).passthrough();
+
+const demoProductSchema = z.strictObject({
+  sku: z.string().min(1),
+  name: z.string().min(1),
+  brand: z.string().min(1),
+  poles: z.number().int().min(1).max(4),
+  curve: z.enum(['B', 'C', 'D']),
+  amps: z.number().int().positive(),
+  breakingCapacity: z.number().positive(),
+  price: z.number().nonnegative(),
+  currency: z.literal('KZT'),
+  stock: z.number().int().nonnegative(),
+});
+
+export function normalizeDemoProduct(input) {
+  const demo = demoProductSchema.parse(input);
+  return productSchema.parse({
+    sku: demo.sku,
+    name: demo.name,
+    brand: demo.brand,
+    poles: demo.poles,
+    curve: demo.curve,
+    amps: demo.amps,
+    breakingCapacityKa: demo.breakingCapacity,
+    priceKzt: demo.price,
+    stock: demo.stock,
+  });
+}
 
 function readNumber(value) {
   const match = String(value ?? '').match(/\d+(?:[.,]\d+)?/);
@@ -103,11 +132,13 @@ const catalogSchema = z.array(productSchema).superRefine((products, context) => 
 });
 
 export function validateCatalog(input) {
-  const products = z.array(z.unknown()).parse(input).map((product) =>
-    product && typeof product === 'object' && 'article' in product && 'quantity' in product
-      ? normalizePartnerProduct(product)
-      : productSchema.parse(product),
-  );
+  const products = z.array(z.unknown()).parse(input).map((product) => {
+    if (product && typeof product === 'object') {
+      if ('breakingCapacity' in product && 'price' in product) return normalizeDemoProduct(product);
+      if ('article' in product && 'quantity' in product) return normalizePartnerProduct(product);
+    }
+    return productSchema.parse(product);
+  });
   return catalogSchema.parse(products);
 }
 

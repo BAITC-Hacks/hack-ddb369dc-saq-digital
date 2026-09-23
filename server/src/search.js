@@ -10,7 +10,7 @@ export function parseQuery(query) {
   const poles = query.match(/\b([1-4])\s*(?:p|р|ф)(?=$|[^\p{L}])/iu)?.[1];
   const rating = query.match(/(?<!\p{L})([BCDВСД])\s*(\d{1,3})(?=$|[^\p{L}\p{N}])/iu);
   const breakingCapacity = query.match(new RegExp(`${number}\\s*(?:kA|кА)(?=$|[^\\p{L}])`, 'iu'))?.[1];
-  const quantity = query.match(/(?:^|\D)(\d+)\s*(?:шт\.?|штук|штуки|единиц)(?=$|[^\p{L}])/iu)?.[1];
+  const quantity = query.match(/(?:^|\D)(\d+)\s*(?:шт\.?|штук|штуки|штука|единиц)(?=$|[^\p{L}])/iu)?.[1];
 
   if (!poles || !rating || !breakingCapacity || !quantity) {
     throw new ApiError(422, 'MISSING_SPECIFICATIONS', 'Укажите полюса, характеристику и номинал, отключающую способность и количество. Например: 3P C16, 10 kA, 8 штук.');
