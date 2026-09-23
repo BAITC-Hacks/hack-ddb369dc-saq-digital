@@ -114,6 +114,44 @@ describe('integrated EKT assistant', () => {
     expect(screen.getByRole('link', { name: /Корзина 1/ })).toBeInTheDocument()
   })
 
+  it('restores an uncertain confirmation after reload and keeps a later deliberate addition separate', async () => {
+    const view = render(<App />)
+    await search('1P C16, 4.5 kA, 2 штуки')
+    let lost = false
+    transport.mockImplementation(async (input, options) => {
+      const response = await nativeFetch(new URL(String(input), backend.url), options)
+      if (String(input).endsWith('/cart') && options?.method === 'POST' && !lost) {
+        lost = true
+        throw new TypeError('Response lost after acceptance')
+      }
+      return response
+    })
+    fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' }))
+    await screen.findByRole('alert')
+    view.unmount()
+    vi.resetModules()
+    const { default: ReloadedApp } = await import('./App')
+    render(<ReloadedApp />)
+    await screen.findByRole('link', { name: /Корзина 1/ })
+    await search('1P C16, 4.5 kA, 2 штуки')
+    fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
+    expect(screen.getByText('Повторная попытка использует то же подтверждение.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
+    await screen.findByRole('heading', { name: 'Корзина' })
+    expect(screen.getByText('2 шт.')).toBeInTheDocument()
+    const firstWrites = cartWrites().map(([, options]) => JSON.parse(String(options?.body)))
+    expect(firstWrites[1]).toEqual(firstWrites[0])
+    act(() => { window.history.pushState({}, '', '/'); window.dispatchEvent(new PopStateEvent('popstate')) })
+    await search('1P C16, 4.5 kA, 2 штуки')
+    fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' }))
+    await screen.findByRole('heading', { name: 'Корзина' })
+    expect(screen.getByText('4 шт.')).toBeInTheDocument()
+    const lastWrite = JSON.parse(String(cartWrites().at(-1)?.[1]?.body))
+    expect(lastWrite.confirmationId).not.toBe(firstWrites[0].confirmationId)
+  }, 15000)
+
   it('answers purchase terms with a source and handles empty or incomplete searches', async () => {
     render(<App />)
     await search('Какие условия доставки и оплаты?')
@@ -176,7 +214,7 @@ describe('integrated EKT assistant', () => {
     backend = await startBackend({ queryParser: { reply } })
     render(<App />)
     await search('что по товарам есть')
-    expect(await screen.findByText('В каталоге представлены автоматические выключатели.')).toBeInTheDocument()
+    expect(await screen.findByText(/В доступном каталоге есть автоматические выключатели/)).toBeInTheDocument()
     expect(screen.queryByText(/Нет подходящих позиций/)).not.toBeInTheDocument()
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     const input = screen.getByLabelText('Сообщение помощнику EKT')
@@ -185,7 +223,7 @@ describe('integrated EKT assistant', () => {
     fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' })
     expect(await screen.findByRole('link', { name: 'Источник условий' })).toBeInTheDocument()
     expect(screen.getByText('что по товарам есть')).toBeInTheDocument()
-    expect(screen.getByText('В каталоге представлены автоматические выключатели.')).toBeInTheDocument()
+    expect(screen.getByText(/В доступном каталоге есть автоматические выключатели/)).toBeInTheDocument()
     expect(reply).toHaveBeenCalledTimes(1)
     expect(cartWrites()).toHaveLength(0)
   })
