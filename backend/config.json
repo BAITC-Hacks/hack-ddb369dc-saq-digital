@@ -7,7 +7,11 @@
   "partner": {
     "maxPages": 2000,
     "concurrency": 4,
-    "timeoutMs": 5000
+    "timeoutMs": 5000,
+    "cache": {
+      "path": ".cache/ekt-catalog.json",
+      "maxAgeMs": 3600000
+    }
   },
   "uploads": {
     "maxFileBytes": 921600,
