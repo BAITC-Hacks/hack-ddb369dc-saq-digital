@@ -14,6 +14,7 @@ beforeEach(async () => {
   vi.stubGlobal('fetch', transport)
 })
 afterEach(async () => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   await backend?.close()
@@ -98,4 +99,65 @@ it('aborts stalled requests and allows a later retry without automatic duplicate
   transport.mockImplementation((input, options) => nativeFetch(new URL(String(input), backend.url), options))
   expect((await api.searchCatalog('1P C16, 4.5 kA, 2 штуки')).products[0].sku).toBe('DEMO-MCB-040')
   expect((await api.getCart()).items).toEqual([])
+})
+
+it('aborts a stalled cart write once and preserves the session for an explicit retry', async () => {
+  const api = await import('./api')
+  await api.getCart()
+  const session = sessionStorage.getItem(configuration.sessionStorageKey)
+  vi.useFakeTimers()
+  transport.mockClear()
+  let requestSignal: AbortSignal | null | undefined
+  transport.mockImplementation((_input, options) => new Promise((_resolve, reject) => {
+    requestSignal = options?.signal
+    requestSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+  }))
+  const pending = expect(api.addToCart('DEMO-MCB-003', 8, 'timeout-confirmation')).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' })
+  await vi.advanceTimersByTimeAsync(configuration.requestTimeoutMs)
+  await pending
+  expect(requestSignal?.aborted).toBe(true)
+  expect(transport).toHaveBeenCalledTimes(1)
+  expect(vi.getTimerCount()).toBe(0)
+  expect(sessionStorage.getItem(configuration.sessionStorageKey)).toBe(session)
+})
+
+it('keeps the timeout active while consuming a stalled response body', async () => {
+  const api = await import('./api')
+  await api.getCart()
+  vi.useFakeTimers()
+  transport.mockClear()
+  transport.mockImplementation((_input, options) => Promise.resolve({
+    ok: true,
+    json: () => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+    }),
+  } as Response))
+  const pending = expect(api.getCart()).rejects.toMatchObject({ code: 'REQUEST_TIMEOUT' })
+  await vi.advanceTimersByTimeAsync(configuration.requestTimeoutMs)
+  await pending
+  expect(transport).toHaveBeenCalledTimes(1)
+  expect(vi.getTimerCount()).toBe(0)
+})
+
+it('clears the timeout after success without later aborting the completed request', async () => {
+  const api = await import('./api')
+  await api.getCart()
+  vi.useFakeTimers()
+  transport.mockClear()
+  transport.mockResolvedValue(new Response(JSON.stringify({ items: [], totalPriceKzt: 0, cartUrl: '/cart' })))
+  await api.getCart()
+  await vi.advanceTimersByTimeAsync(configuration.requestTimeoutMs)
+  expect(vi.getTimerCount()).toBe(0)
+  expect(transport.mock.calls[0][1]?.signal?.aborted).toBe(false)
+})
+
+it('reports network failures during body consumption and clears the timeout', async () => {
+  const api = await import('./api')
+  await api.getCart()
+  vi.useFakeTimers()
+  transport.mockClear()
+  transport.mockResolvedValue({ ok: true, json: () => Promise.reject(new TypeError('Connection lost')) } as Response)
+  await expect(api.getCart()).rejects.toMatchObject({ status: 0, code: 'NETWORK_ERROR' })
+  expect(transport).toHaveBeenCalledTimes(1)
+  expect(vi.getTimerCount()).toBe(0)
 })

@@ -23,7 +23,7 @@ async function request<T>(path: string, body?: unknown, session?: string): Promi
       signal: controller.signal,
     })
     const payload = await response.json().catch((error) => {
-      if (controller.signal.aborted) throw error
+      if (controller.signal.aborted || !(error instanceof SyntaxError)) throw error
       return null
     })
     if (!payload || typeof payload !== 'object') throw new ApiError('Некорректный ответ сервера.', response.status, 'INVALID_RESPONSE')

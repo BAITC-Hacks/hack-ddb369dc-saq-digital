@@ -27,7 +27,7 @@ it('shows supplied properties, certificates and technical issues, and respects o
   expect(choose).not.toHaveBeenCalled()
   view.rerender(<ProductCard product={product} quantity={3} choose={choose} />)
   fireEvent.click(screen.getByRole('button', { name: /Выбрать/ }))
-  expect(choose).toHaveBeenCalledWith(product)
+  expect(choose).toHaveBeenCalledWith(product, screen.getByRole('button', { name: /Выбрать/ }))
 })
 
 it('accepts only HTTP certificate and source links', () => {

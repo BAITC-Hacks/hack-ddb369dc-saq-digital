@@ -1,108 +1,258 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle, CircleNotch, Package, Sparkle, WarningCircle, X } from '@phosphor-icons/react'
-import configuration from '../../config.json'
-import { addToCart, ApiError, searchCatalog } from '../lib/api'
+import { ArrowRight, CheckCircle, CircleNotch, Package, Sparkle, WarningCircle, X } from '@phosphor-icons/react'
+import { addToCart, searchCatalog } from '../lib/api'
 import { money } from '../lib/format'
 import { safeLink } from '../lib/links'
+import { backendSearchQuery, translations } from '../i18n'
+import type { Language } from '../i18n'
 import type { Cart, Product, SearchResult } from '../types'
 import { ProductCard } from './ProductCard'
+import { ErrorText, uiError } from './ErrorText'
+import type { UiError } from './ErrorText'
 
 type Selection = { product: Product; quantity: number; confirmationId: string }
-type Message = { role: 'user' | 'assistant'; text: string; sourceUrl?: string }
+type Message = { role: 'user' | 'assistant'; text: string; language: Language; sourceUrl?: string }
 
-export function AssistantWidget({ cartUrl, updateCart }: { cartUrl: string; updateCart: (cart: Cart) => void }) {
-  const [open, setOpen] = useState(true)
+export function AssistantWidget({ updateCart, language, onLanguageChange }: {
+  updateCart: (cart: Cart) => void
+  language: Language | null
+  onLanguageChange: (language: Language) => void
+}) {
+  const t = translations[language ?? 'ru']
+  const [open, setOpen] = useState(() => !window.matchMedia?.('(max-width: 480px)').matches)
   const [query, setQuery] = useState('')
   const [submittedQuery, setSubmittedQuery] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
+  const searchPending = useRef(false)
+  const messageList = useRef<HTMLElement>(null)
   const [result, setResult] = useState<SearchResult | null>(null)
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<UiError | null>(null)
   const [selected, setSelected] = useState<Selection | null>(null)
-  const [confirming, setConfirming] = useState(false)
-  const [confirmationError, setConfirmationError] = useState('')
-  const [added, setAdded] = useState(false)
-  const searchPending = useRef(false)
-  const confirmationPending = useRef(false)
-  const messageList = useRef<HTMLElement>(null)
+  const [confirmationVisible, setConfirmationVisible] = useState(false)
+  const [confirmLoading, setConfirmLoading] = useState(false)
+  const [confirmError, setConfirmError] = useState<UiError | null>(null)
+  const [confirmAttempted, setConfirmAttempted] = useState(false)
+  const confirmationInFlight = useRef(false)
+  const retryConfirmations = useRef<Record<string, string>>({})
+  const widgetRef = useRef<HTMLElement>(null)
+  const launcherRef = useRef<HTMLButtonElement>(null)
+  const firstLanguageRef = useRef<HTMLButtonElement>(null)
+  const messageRef = useRef<HTMLTextAreaElement>(null)
+  const confirmationRef = useRef<HTMLElement>(null)
+  const confirmButtonRef = useRef<HTMLButtonElement>(null)
+  const reviewRequestRef = useRef<HTMLButtonElement>(null)
+  const returnFocusRef = useRef<HTMLButtonElement | null>(null)
+  const restoreConfirmationFocus = useRef(false)
+  const restoreLauncherFocus = useRef(false)
+  const openedFromLauncher = useRef(false)
 
   useEffect(() => {
     if (messageList.current) messageList.current.scrollTop = messageList.current.scrollHeight
-  }, [messages, loading, result, error])
+  }, [messages, loading, result, error, open])
+
+  useEffect(() => {
+    if (open && openedFromLauncher.current) {
+      if (language) messageRef.current?.focus()
+      else firstLanguageRef.current?.focus()
+      openedFromLauncher.current = false
+    } else if (!open && restoreLauncherFocus.current) {
+      launcherRef.current?.focus()
+      restoreLauncherFocus.current = false
+    }
+  }, [open, language])
+
+  useEffect(() => {
+    if (selected && confirmationVisible) {
+      if (confirmationInFlight.current) confirmationRef.current?.focus()
+      else confirmButtonRef.current?.focus()
+    } else if (restoreConfirmationFocus.current) {
+      const target = returnFocusRef.current?.isConnected ? returnFocusRef.current : reviewRequestRef.current ?? messageRef.current
+      target?.focus()
+      restoreConfirmationFocus.current = false
+    }
+  }, [selected, confirmationVisible])
+
+  useEffect(() => {
+    if (!selected || !confirmationVisible || !confirmAttempted) return
+    if (confirmLoading) confirmationRef.current?.focus()
+    else confirmButtonRef.current?.focus()
+  }, [selected, confirmationVisible, confirmAttempted, confirmLoading])
+
+  useEffect(() => {
+    if (!open || (selected && confirmationVisible)) return
+    const onFocusOutside = (event: FocusEvent) => {
+      if (event.target instanceof HTMLElement && !widgetRef.current?.contains(event.target)) {
+        // Keep the page's focused control visible and leave focus where the user moved it.
+        setOpen(false)
+      }
+    }
+    document.addEventListener('focusin', onFocusOutside)
+    return () => document.removeEventListener('focusin', onFocusOutside)
+  }, [open, selected, confirmationVisible])
+
+  const closeChat = () => {
+    restoreLauncherFocus.current = true
+    setOpen(false)
+  }
+
+  const openChat = () => {
+    openedFromLauncher.current = true
+    setOpen(true)
+  }
+
+  const useSuggestion = (value: string) => {
+    setQuery(value)
+    setError(null)
+    messageRef.current?.focus()
+  }
+
+  const closeConfirmation = () => {
+    restoreConfirmationFocus.current = true
+    setConfirmationVisible(false)
+    if (!confirmAttempted) setSelected(null)
+  }
+
+  useEffect(() => {
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (selected && confirmationVisible) {
+        event.preventDefault()
+        closeConfirmation()
+      } else if (open) {
+        event.preventDefault()
+        if (widgetRef.current?.contains(document.activeElement)) closeChat()
+        else setOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onEscape)
+    return () => window.removeEventListener('keydown', onEscape)
+  }, [open, selected, confirmationVisible, confirmAttempted])
 
   const submit = async (value = query) => {
     if (searchPending.current) return
     const message = value.trim()
-    if (!message) { setError('Укажите артикул, характеристики или вопрос об условиях покупки.'); return }
-    searchPending.current = true
-    setQuery(''); setSubmittedQuery(message); setError(''); setResult(null); setLoading(true); setAdded(false)
-    setMessages((previous) => previous.at(-1)?.role === 'user' && previous.at(-1)?.text === message
-      ? previous : [...previous.slice(-39), { role: 'user', text: message }])
-    try {
-      const next = await searchCatalog(message)
-      setResult(next)
-      setMessages((previous) => [...previous.slice(-39), { role: 'assistant', text: next.message, sourceUrl: next.sourceUrl }])
+    if (!message) {
+      setError({ key: 'shortQuery' })
+      messageRef.current?.focus()
+      return
     }
-    catch (cause) { setError(cause instanceof ApiError ? cause.message : 'Не удалось связаться с каталогом. Повторите запрос.') }
-    finally { searchPending.current = false; setLoading(false) }
+    const messageLanguage = language ?? 'ru'
+    searchPending.current = true
+    setQuery(''); setSubmittedQuery(message); setError(null); setResult(null); setLoading(true)
+    setMessages((previous) => previous.at(-1)?.role === 'user' && previous.at(-1)?.text === message
+      ? previous : [...previous.slice(-39), { role: 'user', text: message, language: messageLanguage }])
+    try {
+      const next = await searchCatalog(backendSearchQuery(message, language))
+      setResult(next)
+      setMessages((previous) => [...previous.slice(-39), {
+        role: 'assistant', text: next.message, sourceUrl: next.sourceUrl,
+        language: next.answerKind === 'conversation' ? messageLanguage : 'ru',
+      }])
+    } catch (caught) {
+      setError(uiError(caught))
+    } finally {
+      searchPending.current = false
+      setLoading(false)
+    }
   }
 
-  const choose = (product: Product) => {
-    if (!result) return
-    setConfirmationError('')
-    setSelected({ product, quantity: result.quantity, confirmationId: crypto.randomUUID() })
+  const choose = (product: Product, trigger: HTMLButtonElement) => {
+    if (!result || confirmationInFlight.current) return
+    const quantity = result.quantity
+    const retryId = retryConfirmations.current[JSON.stringify([product.sku, quantity])]
+    setConfirmError(null)
+    setConfirmAttempted(Boolean(retryId))
+    returnFocusRef.current = trigger
+    setSelected({ product, quantity, confirmationId: retryId ?? crypto.randomUUID() })
+    setConfirmationVisible(true)
+  }
+
+  const keepConfirmationFocus = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab') return
+    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'))
+    const first = buttons[0]
+    const last = buttons.at(-1)
+    if (!first || !last) {
+      event.preventDefault()
+      confirmationRef.current?.focus()
+      return
+    }
+    if (document.activeElement === event.currentTarget) {
+      event.preventDefault()
+      const target = event.shiftKey ? last : first
+      target.focus()
+    } else if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault()
+      first.focus()
+    }
   }
 
   const confirm = async () => {
-    if (!selected || confirmationPending.current) return
-    confirmationPending.current = true
-    setConfirming(true); setConfirmationError('')
+    if (!selected || confirmationInFlight.current) return
+    confirmationInFlight.current = true
+    setConfirmLoading(true)
+    setConfirmAttempted(true)
+    setConfirmError(null)
+    const retryKey = JSON.stringify([selected.product.sku, selected.quantity])
+    retryConfirmations.current = { ...retryConfirmations.current, [retryKey]: selected.confirmationId }
     try {
-      updateCart(await addToCart(selected.product.sku, selected.quantity, selected.confirmationId))
-      setSelected(null); setAdded(true)
-    } catch (cause) {
-      setConfirmationError(cause instanceof ApiError && cause.code !== 'NETWORK_ERROR' ? cause.message : 'Не удалось получить подтверждение. Повторите отправку.')
-    } finally { confirmationPending.current = false; setConfirming(false) }
+      const cart = await addToCart(selected.product.sku, selected.quantity, selected.confirmationId)
+      updateCart(cart)
+      delete retryConfirmations.current[retryKey]
+      setSelected(null)
+    } catch (caught) {
+      setConfirmError(uiError(caught))
+    } finally {
+      confirmationInFlight.current = false
+      setConfirmLoading(false)
+    }
   }
 
   return <>
-    {open ? <aside className="widget" aria-label="Чат с помощником EKT" role="dialog" aria-modal="false">
-      <header>
-        <div className="agent"><span><Sparkle size={17} weight="fill" /></span><div><strong>Помощник EKT</strong><small>Демо · локальный каталог</small></div></div>
-        <button className="icon" type="button" aria-label="Свернуть чат" onClick={() => setOpen(false)}><X size={19} /></button>
-      </header>
-      <section className="messages" ref={messageList} role="log" aria-label="История диалога" aria-live="polite" aria-relevant="additions">
-        <div className="message assistant"><small>Помощник EKT</small><p>Здравствуйте! Расскажу об ассортименте, помогу с подбором и отвечу на вопросы о товарах, корзине, доставке и оплате. Что вас интересует?</p></div>
+    {open && <aside ref={widgetRef} className="widget" aria-labelledby="ekt-chat-title" role="dialog" aria-modal="false" lang={language ?? 'ru'}>
+      <header><div className="agent"><span aria-hidden="true"><Sparkle size={17} weight="regular" /></span><div><strong id="ekt-chat-title">{t.assistant}</strong><small>{t.assistantSubtitle}</small></div></div><button className="icon" type="button" aria-label={t.closeChat} onClick={closeChat}><X size={19} /></button></header>
+      <section className="messages" ref={messageList} role="log" aria-label={t.historyLabel} aria-live="polite" aria-relevant="additions">
+        <div className="message assistant"><small>{t.assistant}</small>{language ? <p>{t.greeting}</p> : <p><span lang="ru">Здравствуйте! Выберите язык для общения.</span><br /><span lang="kk">Сәлеметсіз бе! Қарым-қатынас тілін таңдаңыз.</span></p>}<div className="language-options" role="group" aria-label={t.languageLabel}><button ref={firstLanguageRef} type="button" lang="ru" aria-pressed={language === 'ru'} onClick={() => onLanguageChange('ru')}>Русский</button><button type="button" lang="kk" aria-pressed={language === 'kk'} onClick={() => onLanguageChange('kk')}>Қазақша</button></div>{language && messages.length === 0 && !loading && <div className="starter-prompts"><p>{t.suggestionsHeading}</p><button type="button" onClick={() => useSuggestion(t.demoQuery)}>{t.productSuggestion}<ArrowRight size={14} aria-hidden="true" /></button><button type="button" onClick={() => useSuggestion(t.termsQuery)}>{t.termsSuggestion}<ArrowRight size={14} aria-hidden="true" /></button></div>}</div>
         {messages.map((message, index) => {
           const sourceHref = safeLink(message.sourceUrl)
           return <div className={`message ${message.role === 'user' ? 'customer' : 'assistant'}`} key={index}>
-            <small>{message.role === 'user' ? 'Вы' : 'Помощник EKT'}</small><p>{message.text}</p>
-            {sourceHref && <a className="source-link" href={sourceHref} target="_blank" rel="noreferrer">Источник условий</a>}
+            <small>{message.role === 'user' ? t.you : t.assistant}</small><p lang={message.language}>{message.text}</p>
+            {sourceHref && <a className="source-link" href={sourceHref} target="_blank" rel="noreferrer">{t.source}</a>}
           </div>
         })}
         {result && <>
-          {result.interpretedQuery && <p className="interpreted-query">Распознано: {result.interpretedQuery}</p>}
-          {result.products.length > 0 && <div className="suggestions">{result.products.map((product) => <ProductCard key={product.id} product={product} quantity={result.quantity} choose={choose} />)}</div>}
-          {result.products.length === 0 && (result.answerKind === 'product' || result.answerKind === 'alternatives') && <div className="empty-result"><Package size={26} weight="duotone" /> Нет подходящих позиций. Уточните характеристики или артикул.</div>}
+          {result.interpretedQuery && <p className="interpreted-query">{t.interpreted}: {result.interpretedQuery}</p>}
+          {result.products.length > 0 && <div className="suggestions">{result.products.map((product) => <ProductCard key={product.id} product={product} quantity={result.quantity} choose={choose} t={t} busy={confirmLoading} />)}</div>}
+          {result.products.length === 0 && (result.answerKind === 'product' || result.answerKind === 'alternatives') && <div className="empty-result"><Package size={23} /> {t.noResults}</div>}
         </>}
-        {added && <div className="cart-note" role="status"><CheckCircle size={19} weight="fill" /> Товар добавлен в корзину. <a href={cartUrl}>Перейти в корзину</a></div>}
-        {loading && <div className="loading" role="status"><CircleNotch className="spin" size={17} /> Готовлю ответ</div>}
+        {loading && <div className="loading" role="status"><CircleNotch className="spin" size={17} /> {t.searching}</div>}
       </section>
+      {selected && confirmAttempted && !confirmationVisible && <div className="pending-cart">
+        <p role="status">{confirmLoading ? t.pendingCart : t.cartNeedsReview}</p>
+        <button ref={reviewRequestRef} type="button" onClick={() => setConfirmationVisible(true)}>{t.reviewCartRequest}</button>
+      </div>}
       <form className="composer" onSubmit={(event) => { event.preventDefault(); void submit() }}>
-        <textarea aria-label="Сообщение помощнику EKT" value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+        <label htmlFor="ekt-message">{t.messageLabel}</label>
+        <textarea id="ekt-message" ref={messageRef} aria-invalid={error?.key === 'shortQuery' || undefined} aria-describedby={error ? 'ekt-message-error' : undefined} value={query} onChange={(event) => { setQuery(event.target.value); if (error?.key === 'shortQuery') setError(null) }} onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void submit() }
-        }} placeholder="Что есть в каталоге?" maxLength={4000} rows={2} />
-        {error && <p className="error" role="alert"><WarningCircle size={15} weight="fill" /> {error}</p>}
-        <div>{error && submittedQuery && <button className="demo" type="button" disabled={loading} onClick={() => void submit(submittedQuery)}>Повторить</button>}<button className="demo" type="button" disabled={loading} onClick={() => void submit(configuration.demoQuery)}>Demo</button><button className="send" type="submit" disabled={loading}>{loading ? <CircleNotch className="spin" size={17} /> : 'Отправить'}</button></div>
+        }} placeholder={t.messagePlaceholder} maxLength={4000} rows={2} />
+        {error && <p id="ekt-message-error" className="error" role="alert"><WarningCircle size={15} weight="fill" aria-hidden="true" /><span><ErrorText error={error} t={t} /></span></p>}
+        <div>{error && submittedQuery && <button className="demo" type="button" disabled={loading} onClick={() => void submit(submittedQuery)}>{t.retry}</button>}<button className="demo" type="button" disabled={loading} onClick={() => void submit(t.demoQuery)}>{t.demo}</button><button className="send" type="submit" disabled={loading} aria-label={t.send}>{loading ? <CircleNotch className="spin" size={17} aria-hidden="true" /> : t.send}</button></div>
       </form>
-    </aside> : <button className="fab" type="button" onClick={() => setOpen(true)}><Sparkle size={19} weight="fill" /> Спросить помощника</button>}
-    {selected && <div className="shade" role="presentation"><section className="confirm" role="dialog" aria-modal="true" aria-label="Добавить товар в корзину?" onKeyDown={(event) => { if (event.key === 'Escape' && !confirming) setSelected(null) }}>
-      <button className="icon close" type="button" disabled={confirming} aria-label="Закрыть подтверждение" onClick={() => setSelected(null)}><X size={19} /></button>
-      <span className="confirm-icon"><CheckCircle size={28} weight="fill" /></span><p className="eyebrow">Явное подтверждение</p><h2>Добавить товар в корзину?</h2>
-      <p>{selected.product.name}<br /><small>{selected.product.sku}</small></p>
-      <div className="total"><span>Количество <b>{selected.quantity} шт.</b></span><span>Итого <b>{money.format(selected.product.price * selected.quantity)}</b></span></div>
-      {confirmationError && <p className="error" role="alert">{confirmationError}</p>}
-      <footer><button className="cancel" type="button" disabled={confirming} autoFocus onClick={() => setSelected(null)}>Отмена</button><button className="yes" type="button" disabled={confirming} onClick={() => void confirm()}>{confirming ? 'Добавляю…' : 'Подтвердить и добавить'}</button></footer>
+    </aside>}
+    {!open && <button ref={launcherRef} className="fab" type="button" aria-label={t.openChat} onClick={openChat} lang={language ?? 'ru'}><Sparkle size={19} weight="regular" aria-hidden="true" /> {t.askAssistant}</button>}
+    {selected && confirmationVisible && <div className="shade" role="presentation"><section ref={confirmationRef} className="confirm" role="dialog" aria-modal="true" aria-labelledby="ekt-confirm-title" aria-describedby={confirmAttempted ? 'ekt-confirm-status' : undefined} tabIndex={-1} onKeyDown={keepConfirmationFocus} lang={language ?? 'ru'}>
+      <button className="icon close" type="button" aria-label={t.closeConfirmation} onClick={closeConfirmation}><X size={19} /></button>
+      <span className="confirm-icon"><CheckCircle size={28} weight="fill" /></span><p className="eyebrow">{t.explicitConfirmation}</p><h2 id="ekt-confirm-title">{t.addToCart}</h2>
+      <p lang="ru">{selected.product.name}<br /><small>{selected.product.sku}</small></p>
+      <div className="total"><span>{t.quantity} <b>{selected.quantity} {t.piece}</b></span><span>{t.total} <b>{money.format(selected.product.price * selected.quantity)}</b></span></div>
+      {confirmAttempted && <p id="ekt-confirm-status" role="status">{confirmLoading ? t.pendingCart : t.retryNote}</p>}
+      {confirmError && <p className="confirm-error" role="alert"><ErrorText error={confirmError} t={t} /></p>}
+      <footer><button className="cancel" type="button" onClick={closeConfirmation}>{confirmAttempted ? t.hideRequest : t.cancel}</button><button ref={confirmButtonRef} className="yes" type="button" disabled={confirmLoading} onClick={() => void confirm()}>{confirmLoading ? t.adding : confirmAttempted ? t.retry : t.yesAdd}</button></footer>
     </section></div>}
   </>
 }

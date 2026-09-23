@@ -3,34 +3,52 @@ import { Heart, List, MagnifyingGlass, MapPin, Phone, ShoppingCart, UserCircle }
 import configuration from '../config.json'
 import { AssistantWidget } from './components/AssistantWidget'
 import { CartPage } from './components/CartPage'
-import { getCart } from './lib/api'
+import { uiError } from './components/ErrorText'
+import type { UiError } from './components/ErrorText'
+import { frontendCartUrl, getCart } from './lib/api'
+import { storedLanguage, translations } from './i18n'
+import type { Language } from './i18n'
 import type { Cart } from './types'
 
 function App() {
+  const [language, setLanguage] = useState<Language | null>(storedLanguage)
+  const [route, setRoute] = useState(window.location.pathname)
   const [cart, setCart] = useState<Cart>({ items: [], totalPriceKzt: 0, cartUrl: configuration.cartPath })
   const [cartLoading, setCartLoading] = useState(true)
-  const [cartError, setCartError] = useState('')
+  const [cartError, setCartError] = useState<UiError | null>(null)
   const cartVersion = useRef(0)
   const refreshCart = useCallback(async () => {
     const version = ++cartVersion.current
-    setCartLoading(true); setCartError('')
+    setCartLoading(true); setCartError(null)
     try {
       const next = await getCart()
       if (cartVersion.current === version) setCart(next)
-    } catch {
-      if (cartVersion.current === version) setCartError('Не удалось загрузить корзину.')
+    } catch (error) {
+      if (cartVersion.current === version) setCartError(uiError(error))
     } finally {
       if (cartVersion.current === version) setCartLoading(false)
     }
   }, [])
   useEffect(() => { void refreshCart() }, [refreshCart])
+  useEffect(() => {
+    const onPopState = () => setRoute(window.location.pathname)
+    window.addEventListener('popstate', onPopState)
+    return () => window.removeEventListener('popstate', onPopState)
+  }, [])
+  const changeLanguage = (next: Language) => {
+    setLanguage(next)
+    try { window.localStorage.setItem('ekt-ui-language', next) } catch { /* Storage can be unavailable in a private session. */ }
+  }
   const updateCart = (next: Cart) => {
+    const nextUrl = frontendCartUrl(next.cartUrl ?? configuration.cartPath)
     cartVersion.current += 1
-    setCart(next); setCartError(''); setCartLoading(false)
+    setCart(next); setCartError(null); setCartLoading(false)
+    window.history.pushState({}, '', nextUrl)
+    setRoute(window.location.pathname)
   }
   const cartUrl = cart.cartUrl ?? configuration.cartPath
   const cartPath = new URL(cartUrl, window.location.origin).pathname.replace(/\/$/, '')
-  const isCartPage = window.location.pathname.replace(/\/$/, '') === cartPath
+  const isCartPage = route.replace(/\/$/, '') === cartPath
 
   return <main className="store">
     <div className="site-top">
@@ -40,16 +58,15 @@ function App() {
       <a className="brand" href="/" aria-label="Группа компаний Электрокомплект"><span>ГРУППА КОМПАНИЙ</span>ЭЛЕКТРОКОМПЛЕКТ</a>
       <a className="catalog-button" href="/#catalog">Каталог <List size={19} weight="bold" /></a>
       <label className="site-search"><MagnifyingGlass size={20} /><input placeholder="Поиск — через помощника EKT" readOnly aria-label="Для поиска откройте помощника EKT" /></label>
-      <div className="header-actions"><a href="#compare">Сравнить</a><a href="#favorites"><Heart size={18} /> Избранное</a><a href={cartUrl}><ShoppingCart size={19} /> Корзина <b>{cart.items.length}</b></a></div>
+      <div className="header-actions"><a href="#compare">Сравнить</a><a href="#favorites"><Heart size={18} /> Избранное</a><a href={cartUrl}><ShoppingCart size={19} /> {translations[language ?? 'ru'].cart} <b>{cart.items.length}</b></a></div>
     </header>
-    {isCartPage ? <CartPage cart={cart} loading={cartLoading} error={cartError} retry={() => void refreshCart()} /> : <>
-      {cartError && <p className="cart-load-error" role="alert">{cartError} <button type="button" onClick={() => void refreshCart()}>Повторить</button></p>}
+    {isCartPage ? <CartPage cart={cart} loading={cartLoading} error={cartError} retry={() => void refreshCart()} language={language} /> : <>
       <section className="showcase" aria-label="Специальные предложения">
         <article className="showcase-main"><div className="promo-copy"><p className="promo-brand">Промрукав</p><h1>МОНТАЖНЫЕ <strong>РЕШЕНИЯ</strong></h1><span>ЖАНА / НОВИНКА!</span></div><div className="product-assembly" aria-hidden="true"><i className="assembly-box" /><i className="assembly-rail" /><i className="assembly-cover" /><i className="assembly-tube" /></div></article>
         <article className="showcase-side"><span>CHiNT</span><div className="breaker-pair" aria-hidden="true"><i /><i /></div><small>Низковольтная аппаратура</small></article>
       </section>
       <section className="catalog" id="catalog"><h2>Каталог продукции</h2><div className="category-bar"><a href="#cable">Кабель / Провод</a><a href="#light">Светильники / Лампы</a><a href="#low">Низковольтная аппаратура</a><a href="#tools">Монтаж и инструмент</a><a href="#cabinet">Шкафы / Щиты</a></div></section>
-      <AssistantWidget cartUrl={cartUrl} updateCart={updateCart} />
+      <AssistantWidget updateCart={updateCart} language={language} onLanguageChange={changeLanguage} />
     </>}
   </main>
 }
