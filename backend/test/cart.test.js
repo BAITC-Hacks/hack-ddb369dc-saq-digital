@@ -35,3 +35,10 @@ test('enforces a known minimum order multiple', () => {
   assert.deepEqual(cart.snapshot().items, []);
   assert.equal(cart.add({ sku: 'EXACT', quantity: 5, confirmed: true, confirmationId: 'a' }).items[0].quantity, 5);
 });
+
+test('rejects oversized confirmation IDs before retaining cart state', () => {
+  const cart = new Cart(catalog);
+  assert.throws(() => cart.add({ sku: 'EXACT', quantity: 1, confirmed: true, confirmationId: 'x'.repeat(257) }), { code: 'CONFIRMATION_ID_REQUIRED' });
+  assert.deepEqual(cart.snapshot().items, []);
+  assert.equal(cart.confirmations.size, 0);
+});

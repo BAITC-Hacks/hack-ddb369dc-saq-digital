@@ -10,10 +10,16 @@ import { Sessions } from '../src/sessions.js';
 const catalog = await loadCatalog(fileURLToPath(new URL('../../data/catalog.json', import.meta.url)));
 if (process.argv.includes('--memory-worker')) {
   const sessions = new Sessions(catalog);
-  for (let count = 1; count <= 100000; count++) {
-    sessions.create();
-    if (count % 1000 === 0) console.log(JSON.stringify({ sessions: count, heapMiB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) }));
+  let rejected = 0;
+  for (let count = 1; count <= 20000; count++) {
+    try { sessions.create(); } catch (error) {
+      assert.equal(error.code, 'SESSION_CAPACITY');
+      rejected += 1;
+    }
+    if (count % 1000 === 0) console.log(JSON.stringify({ attempts: count, sessions: sessions.sessions.size, rejected, heapMiB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024) }));
   }
+  assert.equal(sessions.sessions.size, 1000);
+  assert.equal(rejected, 19000);
   process.exit(0);
 }
 
@@ -46,8 +52,12 @@ async function batch(count, concurrency, run) {
 try {
   const sessions = await batch(1000, 32, () => request('/api/session', {}));
   report.sessionLoad = { ...sessions, results: undefined };
-  const id = sessions.results[0].body.sessionId;
-  const other = sessions.results[1].body.sessionId;
+  assert.equal(sessions.statuses[201], 30);
+  assert.equal(sessions.statuses[429], 970);
+  const created = sessions.results.filter(result => result.status === 201);
+  const id = created[0].body.sessionId;
+  const other = created[1].body.sessionId;
+  report.controls.push('1000 session requests created 30 sessions and safely rate-limited 970');
   const search = await batch(400, 16, () => request('/api/search', { query: '3P C16, 10 kA, 8 штук', conversation: true }, id));
   report.searchLoad = { ...search, results: undefined };
   assert.equal(search.statuses[200], 400);
@@ -92,5 +102,9 @@ report.memory = await new Promise((resolve) => execFile(process.execPath,
     killed: error?.killed ?? false, exhausted: /heap out of memory/i.test(stderr),
     samples: stdout.split(/\r?\n/).filter(line => line.startsWith('{')).map(line => JSON.parse(line)),
   })));
+assert.equal(report.memory.exitCode, 0);
+assert.equal(report.memory.exhausted, false);
+assert.equal(report.memory.samples.at(-1).sessions, 1000);
+report.controls.push('20000 allocations under a 64 MiB old-space limit retained 1000 sessions without exhaustion');
 await writeFile(process.argv[2], JSON.stringify(report, null, 2) + '\n');
 console.log(JSON.stringify(report, null, 2));
