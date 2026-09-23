@@ -1,7 +1,8 @@
 import configuration from '../../config.json'
 import type { ApiProduct, ApiSearchResult, Cart, Product, SearchResult } from '../types'
 
-const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? configuration.apiBaseUrl).replace(/\/$/, '')
+const configuredUrl = (import.meta.env.VITE_API_BASE_URL ?? configuration.apiBaseUrl).replace(/\/+$/, '')
+const baseUrl = configuredUrl.endsWith('/api') ? configuredUrl : `${configuredUrl}/api`
 let sessionId: string | undefined
 let sessionRequest: Promise<string> | undefined
 
@@ -12,21 +13,28 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, body?: unknown, session?: string): Promise<T> {
-  const response = await fetch(`${baseUrl}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
-    headers: { 'Content-Type': 'application/json', ...(session && { 'X-Session-Id': session }) },
-    ...(body !== undefined && { body: JSON.stringify(body) }),
-  })
-  const payload = await response.json()
+  let response: Response
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      method: body === undefined ? 'GET' : 'POST',
+      headers: { 'Content-Type': 'application/json', ...(session && { 'X-Session-Id': session }) },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    })
+  } catch {
+    throw new ApiError('Сервер помощника недоступен. Повторите запрос.', 0, 'NETWORK_ERROR')
+  }
+  const payload = await response.json().catch(() => null)
+  if (!payload || typeof payload !== 'object') throw new ApiError('Некорректный ответ сервера.', response.status, 'INVALID_RESPONSE')
   if (!response.ok) throw new ApiError(payload.error?.message ?? 'Не удалось выполнить запрос.', response.status, payload.error?.code ?? 'REQUEST_FAILED')
   return payload as T
 }
 
-function getSession(): Promise<string> {
+export function ensureSession(): Promise<string> {
   sessionId ??= window.sessionStorage.getItem(configuration.sessionStorageKey) ?? undefined
   if (sessionId) return Promise.resolve(sessionId)
   sessionRequest ??= request<{ sessionId: string }>('/session', {})
     .then((result) => {
+      if (!result.sessionId) throw new ApiError('Сервер не создал сессию.', 0, 'INVALID_SESSION')
       sessionId = result.sessionId
       window.sessionStorage.setItem(configuration.sessionStorageKey, sessionId)
       return sessionId
@@ -37,7 +45,7 @@ function getSession(): Promise<string> {
 
 async function sessionRequestFor<T>(path: string, body?: unknown): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
-    const currentSession = await getSession()
+    const currentSession = await ensureSession()
     try {
       return await request<T>(path, body, currentSession)
     } catch (error) {
@@ -65,6 +73,9 @@ function displayProduct(product: ApiProduct, isExactMatch: boolean, recommendati
     isExactMatch,
     recommendation,
     certificateUrl: product.certificates?.[0]?.url,
+    certificates: product.certificates,
+    properties: product.properties,
+    technicalIssue: product.technicalIssue,
     minimumOrderQuantity: product.minimumOrderQuantity,
   }
 }
@@ -92,10 +103,19 @@ export async function searchCatalog(query: string): Promise<SearchResult> {
   }
 }
 
-export function getCart(): Promise<Cart> {
-  return sessionRequestFor<Cart>('/cart')
+export function frontendCartUrl(cartUrl = configuration.cartPath): string {
+  if (!cartUrl.startsWith('/') || cartUrl.startsWith('//')) throw new ApiError('Некорректная ссылка на корзину.', 0, 'INVALID_CART_URL')
+  const url = new URL(cartUrl, window.location.origin)
+  if (url.origin !== window.location.origin) throw new ApiError('Некорректная ссылка на корзину.', 0, 'INVALID_CART_URL')
+  return `${url.pathname}${url.search}${url.hash}`
 }
 
-export function addToCart(sku: string, quantity: number, confirmationId: string): Promise<Cart> {
-  return sessionRequestFor<Cart>('/cart', { sku, quantity, confirmed: true, confirmationId })
+export async function getCart(): Promise<Cart> {
+  const cart = await sessionRequestFor<Cart>('/cart')
+  return { ...cart, cartUrl: frontendCartUrl(cart.cartUrl) }
+}
+
+export async function addToCart(sku: string, quantity: number, confirmationId: string): Promise<Cart> {
+  const cart = await sessionRequestFor<Cart>('/cart', { sku, quantity, confirmed: true, confirmationId })
+  return { ...cart, cartUrl: frontendCartUrl(cart.cartUrl) }
 }

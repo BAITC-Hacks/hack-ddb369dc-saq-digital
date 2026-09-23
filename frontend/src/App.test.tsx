@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { startBackend } from './test/backend'
@@ -119,5 +119,44 @@ describe('integrated EKT assistant', () => {
     await search('автомат')
     expect(await screen.findByRole('alert')).toHaveTextContent('Укажите полюса')
     expect(cartWrites()).toHaveLength(0)
+  })
+
+  it('does not overwrite a confirmed cart with a delayed initial GET', async () => {
+    let finishInitial: (() => void) | undefined
+    transport.mockImplementation(async (input, options) => {
+      const response = await nativeFetch(new URL(String(input), backend.url), options)
+      if (response.ok && String(input).endsWith('/cart') && options?.method === 'GET' && !finishInitial) {
+        await new Promise<void>((resolve) => { finishInitial = resolve })
+      }
+      return response
+    })
+    render(<App />)
+    await waitFor(() => expect(finishInitial).toBeTypeOf('function'))
+    await search()
+    await screen.findByText('DEMO-MCB-003')
+    fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить и добавить' }))
+    await screen.findByText('Товар добавлен в корзину.')
+    await act(async () => { finishInitial?.() })
+    expect(screen.getByRole('link', { name: /Корзина 1/ })).toBeInTheDocument()
+  })
+
+  it('serves the cart screen at the custom local route returned by the API', async () => {
+    transport.mockImplementation(async (input, options) => {
+      const response = await nativeFetch(new URL(String(input), backend.url), options)
+      if (!response.ok || !String(input).endsWith('/cart')) return response
+      return new Response(JSON.stringify({ ...await response.json(), cartUrl: '/checkout-cart' }), { headers: { 'Content-Type': 'application/json' } })
+    })
+    const view = render(<App />)
+    await search()
+    await screen.findByText('DEMO-MCB-003')
+    fireEvent.click(screen.getAllByRole('button', { name: /Выбрать/ })[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Подтвердить и добавить' }))
+    expect(await screen.findByRole('link', { name: 'Перейти в корзину' })).toHaveAttribute('href', '/checkout-cart')
+    view.unmount()
+    window.history.replaceState({}, '', '/checkout-cart')
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Корзина' })).toBeInTheDocument()
+    expect(screen.getByText('8 шт.')).toBeInTheDocument()
   })
 })

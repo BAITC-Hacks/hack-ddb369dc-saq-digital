@@ -15,6 +15,7 @@ beforeEach(async () => {
 })
 afterEach(async () => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   await backend?.close()
 })
 
@@ -45,4 +46,28 @@ it('propagates validation errors without retrying cart mutations', async () => {
   await expect(api.addToCart('DEMO-MCB-003', 13, 'overstock')).rejects.toMatchObject({ status: 409, code: 'INSUFFICIENT_STOCK' })
   expect(transport.mock.calls.filter(([url, options]) => String(url).endsWith('/cart') && options?.method === 'POST')).toHaveLength(1)
   expect((await api.getCart()).items).toEqual([])
+})
+
+it('accepts only local cart routes, including custom paths, and rejects unsafe API links', async () => {
+  const api = await import('./api')
+  expect(api.frontendCartUrl('/checkout-cart?step=1')).toBe('/checkout-cart?step=1')
+  for (const route of ['//example.com/cart', '/\\example.com/cart', 'javascript:alert(1)']) {
+    expect(() => api.frontendCartUrl(route)).toThrow('Некорректная ссылка')
+  }
+  transport.mockImplementation((input, options) => String(input).endsWith('/cart')
+    ? Promise.resolve(new Response(JSON.stringify({ items: [], totalPriceKzt: 0, cartUrl: '//example.com/cart' }), { headers: { 'Content-Type': 'application/json' } }))
+    : nativeFetch(new URL(String(input), backend.url), options))
+  await expect(api.getCart()).rejects.toMatchObject({ code: 'INVALID_CART_URL' })
+})
+
+it('accepts both API origins and full API prefixes without duplicating api in the URL', async () => {
+  for (const value of [backend.url, backend.url + '/api/']) {
+    vi.stubEnv('VITE_API_BASE_URL', value)
+    vi.resetModules()
+    transport.mockClear()
+    const api = await import('./api')
+    expect((await api.getCart()).items).toEqual([])
+    expect(transport.mock.calls.some(([url]) => url === backend.url + '/api/cart')).toBe(true)
+    expect(transport.mock.calls.some(([url]) => String(url).includes('/api/api/'))).toBe(false)
+  }
 })

@@ -11,6 +11,9 @@ export type Product = {
   isExactMatch: boolean
   recommendation: string
   certificateUrl?: string
+  certificates?: { name: string; url: string }[]
+  properties?: Record<string, unknown>
+  technicalIssue?: string
   minimumOrderQuantity?: number
 }
 
@@ -26,6 +29,7 @@ export type SearchResult = {
 export type ApiProduct = {
   sku: string
   name: string
+  brand?: string
   poles?: number | null
   curve?: 'B' | 'C' | 'D' | null
   amps?: number | null
@@ -34,6 +38,8 @@ export type ApiProduct = {
   stock: number
   certificates?: { name: string; url: string }[]
   minimumOrderQuantity?: number
+  properties?: Record<string, unknown>
+  technicalIssue?: string
 }
 
 export type ApiSearchResult = {

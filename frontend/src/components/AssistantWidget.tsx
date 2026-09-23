@@ -3,6 +3,7 @@ import { CheckCircle, CircleNotch, Package, Sparkle, WarningCircle, X } from '@p
 import configuration from '../../config.json'
 import { addToCart, ApiError, searchCatalog } from '../lib/api'
 import { money } from '../lib/format'
+import { safeLink } from '../lib/links'
 import type { Cart, Product, SearchResult } from '../types'
 import { ProductCard } from './ProductCard'
 
@@ -47,10 +48,11 @@ export function AssistantWidget({ cartUrl, updateCart }: { cartUrl: string; upda
       updateCart(await addToCart(selected.product.sku, selected.quantity, selected.confirmationId))
       setSelected(null); setAdded(true)
     } catch (cause) {
-      setConfirmationError(cause instanceof ApiError ? cause.message : 'Не удалось получить подтверждение. Повторите отправку.')
+      setConfirmationError(cause instanceof ApiError && cause.code !== 'NETWORK_ERROR' ? cause.message : 'Не удалось получить подтверждение. Повторите отправку.')
     } finally { confirmationPending.current = false; setConfirming(false) }
   }
 
+  const sourceHref = safeLink(result?.sourceUrl)
   return <>
     {open ? <aside className="widget" aria-label="Чат с помощником EKT" role="dialog" aria-modal="false">
       <header>
@@ -61,7 +63,7 @@ export function AssistantWidget({ cartUrl, updateCart }: { cartUrl: string; upda
         <div className="message assistant"><small>Помощник EKT</small><p>Здравствуйте! Подберу товар по артикулу или характеристикам, проверю остатки и объясню аналоги. Могу ответить про доставку и оплату.</p></div>
         {result && <>
           <div className="message customer"><small>Вы</small><p>{submittedQuery}</p></div>
-          <div className="message assistant"><small>Помощник EKT</small><p>{result.message}</p>{result.sourceUrl && <a href={result.sourceUrl} target="_blank" rel="noreferrer">Источник условий</a>}</div>
+          <div className="message assistant"><small>Помощник EKT</small><p>{result.message}</p>{sourceHref && <a className="source-link" href={sourceHref} target="_blank" rel="noreferrer">Источник условий</a>}</div>
           {result.interpretedQuery && <p className="interpreted-query">Распознано: {result.interpretedQuery}</p>}
           {result.products.length > 0 && <div className="suggestions">{result.products.map((product) => <ProductCard key={product.id} product={product} quantity={result.quantity} choose={choose} />)}</div>}
           {result.products.length === 0 && result.answerKind !== 'purchase-terms' && <div className="empty-result"><Package size={26} weight="duotone" /> Нет подходящих позиций. Уточните характеристики или артикул.</div>}

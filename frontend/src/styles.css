@@ -134,6 +134,12 @@ button:disabled { cursor: not-allowed; opacity: .54; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .catalog-button { text-decoration: none; }
 .interpreted-query { color: #516472; font-size: 12px; line-height: 1.4; }
+.property-list { margin: 8px 0; color: #5f6b74; font-size: 11px; }
+.property-list div { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid #eef1f3; }
+.property-list dt { overflow-wrap: anywhere; }
+.property-list dd { margin: 0; font-weight: 700; text-align: right; }
+.certificates { display: flex; flex-wrap: wrap; gap: 7px; margin: 8px 0; }
+.source-link { display: inline-block; margin-top: 7px; color: #1e5ca8; font-size: 12px; font-weight: 700; }
 .cart-page { max-width: 1000px; margin: 40px auto; padding: 0 24px; }
 .cart-page > a { color: #1e5ca8; }
 .cart-page h1 { margin: 24px 0; font-size: 30px; }

@@ -3,6 +3,6 @@
   "apiProxyOrigin": "http://127.0.0.1",
   "apiBaseUrl": "/api",
   "cartPath": "/cart",
-  "sessionStorageKey": "ekt-match-session",
+  "sessionStorageKey": "ekt-assistant-session-id",
   "demoQuery": "Нужен автомат 3P C16, 10 kA, 8 штук. Если нет — совместимый аналог."
 }
