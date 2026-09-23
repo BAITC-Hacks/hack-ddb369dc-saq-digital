@@ -30,17 +30,18 @@ export function parseQuery(query) {
   return filters;
 }
 
-export function searchCatalog(catalog, filters) {
+export function searchCatalog(catalog, filters, options = {}) {
   const sameRating = catalog.filter((product) =>
+    !product.technicalIssue &&
     product.poles === filters.poles &&
     product.curve === filters.curve &&
     product.amps === filters.amps,
   );
   const exact = sameRating
-    .filter((product) => product.breakingCapacityKa === filters.breakingCapacityKa)
+    .filter((product) => product.breakingCapacityKa === filters.breakingCapacityKa && (!options.targetSku || product.sku === options.targetSku))
     .sort((left, right) => Number(right.stock >= filters.quantity) - Number(left.stock >= filters.quantity) || left.priceKzt - right.priceKzt)[0] ?? null;
   const alternatives = sameRating
-    .filter((product) => product.breakingCapacityKa > filters.breakingCapacityKa && product.stock >= filters.quantity)
+    .filter((product) => product.sku !== (options.targetSku ?? exact?.sku) && !options.excludedSkus?.includes(product.sku) && product.breakingCapacityKa >= filters.breakingCapacityKa && product.stock >= filters.quantity)
     .sort((left, right) => left.breakingCapacityKa - right.breakingCapacityKa || left.priceKzt - right.priceKzt)
     .slice(0, 2)
     .map((product) => ({
@@ -51,6 +52,6 @@ export function searchCatalog(catalog, filters) {
   return {
     filters,
     exactMatch: exact && { product: exact, canFulfill: exact.stock >= filters.quantity },
-    alternatives: exact?.stock >= filters.quantity ? [] : alternatives,
+    alternatives: exact?.stock >= filters.quantity && !options.includeAlternatives ? [] : alternatives,
   };
 }
