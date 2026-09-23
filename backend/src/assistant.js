@@ -158,5 +158,8 @@ export async function answerConversation(catalog, query, terms, context = {}, qu
     }
   }
 
-  return remember(context, query, conversationalAnswer(`AI-диалог сейчас отключён. В доступном каталоге ${catalog.length} товаров. Могу проверить артикул, подобрать автомат по характеристикам и показать условия оплаты или доставки. ${clarification}`, { notice: 'AI_OFFLINE' }));
+  const modeMessage = catalog.length && catalog.every((product) => product.id)
+    ? 'AI-диалог сейчас отключён.'
+    : 'Сейчас включён локальный режим.';
+  return remember(context, query, conversationalAnswer(`${modeMessage} В доступном каталоге ${catalog.length} товаров. Могу проверить артикул, подобрать автомат по характеристикам и показать условия оплаты или доставки. ${clarification}`, { notice: 'AI_OFFLINE' }));
 }

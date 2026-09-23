@@ -73,6 +73,9 @@ test('large partner catalogs use bounded relevant AI context and identify their 
       return { kind: 'answer', answer: 'Есть прожектор.', filters: noFilters };
     },
   });
+  const withoutAi = await answerConversation(products, 'что есть', terms);
+  assert.match(withoutAi.answer, /AI-диалог сейчас отключён/);
+  assert.doesNotMatch(withoutAi.answer, /локальный режим|позиций автоматических выключателей/);
 });
 
 test('free-form catalogue questions use site context instead of demanding specifications', async () => {
