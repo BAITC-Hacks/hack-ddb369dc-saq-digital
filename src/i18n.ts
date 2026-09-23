@@ -4,6 +4,8 @@ const ru = {
   cart: 'Корзина',
   assistant: 'Помощник EKT', assistantSubtitle: 'Каталог и условия покупки', closeChat: 'Свернуть чат',
   greeting: 'Здравствуйте! Подберу товар по артикулу или характеристикам, проверю остатки и объясню аналоги. Могу ответить про доставку и оплату.',
+  suggestionsHeading: 'Например, спросите:', productSuggestion: 'Подобрать автомат', termsSuggestion: 'Условия оплаты',
+  termsQuery: 'Какие есть способы оплаты?',
   you: 'Вы', source: 'Источник условий', noResults: 'Уточните артикул или характеристики товара.',
   searching: 'Ищу по каталогу', messageLabel: 'Сообщение помощнику EKT',
   messagePlaceholder: 'Например: нужен автомат 3P C16, 10 kA, 8 штук',
@@ -26,6 +28,8 @@ const kk: typeof ru = {
   cart: 'Себет',
   assistant: 'EKT көмекшісі', assistantSubtitle: 'Каталог және сатып алу шарттары', closeChat: 'Чатты жабу',
   greeting: 'Сәлеметсіз бе! Тауарды артикул немесе сипаттамалары бойынша табуға, қалдығын тексеруге және баламаларын түсіндіруге көмектесемін. Жеткізу мен төлем туралы да жауап беремін.',
+  suggestionsHeading: 'Мысалы, сұраңыз:', productSuggestion: 'Автоматты таңдау', termsSuggestion: 'Төлем шарттары',
+  termsQuery: 'Төлем шарттары қандай?',
   you: 'Сіз', source: 'Шарттар көзі', noResults: 'Тауардың артикулын немесе сипаттамаларын нақтылаңыз.',
   searching: 'Каталогтан іздеп жатырмын', messageLabel: 'EKT көмекшісіне хабарлама',
   messagePlaceholder: 'Мысалы: 3P C16, 10 kA автоматы, 8 дана керек',
@@ -41,11 +45,19 @@ const kk: typeof ru = {
   adding: 'Қосылып жатыр…', retry: 'Қайталау', yesAdd: 'Иә, қосу',
   home: 'Басты бет', loadingCart: 'Себет жүктелуде…', emptyCart: 'Себетте әзірге тауар жоқ.',
   backCatalog: 'Каталогқа оралу',
-  demoQuery: '3P C16, 10 kA автоматы, 8 дана (8 шт.) керек. Болмаса, үйлесімді баламасын ұсыныңыз.',
+  demoQuery: '3P C16, 10 kA автоматы, 8 дана керек. Болмаса, үйлесімді баламасын ұсыныңыз.',
 }
 
 export type UiText = typeof ru
 export const translations: Record<Language, UiText> = { ru, kk }
+
+export function backendSearchQuery(query: string, language: Language | null): string {
+  if (language !== 'kk') return query
+  // The current search parser recognizes Russian quantity and payment keywords only.
+  return query
+    .replace(/(\d+)\s*дана(?=$|[^\p{L}])/giu, '$1 шт.')
+    .replace(/төлем/giu, 'оплата')
+}
 
 export function storedLanguage(): Language | null {
   try {

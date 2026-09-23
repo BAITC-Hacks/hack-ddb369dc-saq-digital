@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowRight, CheckCircle, CircleNotch, FileText, Heart, List, MagnifyingGlass, MapPin, Package, Phone, ShoppingCart, Sparkle, UserCircle, WarningCircle, X } from '@phosphor-icons/react'
 import { addToCart, frontendCartUrl, getCart, searchCatalog } from './lib/api'
-import { storedLanguage, translations } from './i18n'
+import { backendSearchQuery, storedLanguage, translations } from './i18n'
 import type { Language, UiText } from './i18n'
 import type { ApiProduct, CartSnapshot, SearchResponse } from './types'
 
@@ -126,6 +126,12 @@ function Widget({ onCartChanged, language, onLanguageChange }: {
     setOpen(true)
   }
 
+  const useSuggestion = (value: string) => {
+    setQuery(value)
+    setError('')
+    messageRef.current?.focus()
+  }
+
   const closeConfirmation = () => {
     setSelected(null)
   }
@@ -159,7 +165,7 @@ function Widget({ onCartChanged, language, onLanguageChange }: {
     setResult(null)
     setLoading(true)
     try {
-      setResult(await searchCatalog(message))
+      setResult(await searchCatalog(backendSearchQuery(message, language)))
     } catch (caught) {
       setError(errorMessage(caught, t.requestFailed))
     } finally {
@@ -219,7 +225,7 @@ function Widget({ onCartChanged, language, onLanguageChange }: {
     {open && <aside ref={widgetRef} className="widget" aria-labelledby="ekt-chat-title" role="dialog" aria-modal="false" lang={language ?? 'ru'}>
       <header><div className="agent"><span aria-hidden="true"><Sparkle size={17} weight="regular" /></span><div><strong id="ekt-chat-title">{t.assistant}</strong><small>{t.assistantSubtitle}</small></div></div><button className="icon" type="button" aria-label={t.closeChat} onClick={closeChat}><X size={19} /></button></header>
       <section className="messages" aria-live="polite">
-        <div className="message assistant"><small>{t.assistant}</small>{language ? <p>{t.greeting}</p> : <p><span lang="ru">Здравствуйте! Выберите язык для общения.</span><br /><span lang="kk">Сәлеметсіз бе! Қарым-қатынас тілін таңдаңыз.</span></p>}<div className="language-options" role="group" aria-label="Язык общения / Қарым-қатынас тілі"><button ref={firstLanguageRef} type="button" lang="ru" aria-pressed={language === 'ru'} onClick={() => onLanguageChange('ru')}>Русский</button><button type="button" lang="kk" aria-pressed={language === 'kk'} onClick={() => onLanguageChange('kk')}>Қазақша</button></div></div>
+        <div className="message assistant"><small>{t.assistant}</small>{language ? <p>{t.greeting}</p> : <p><span lang="ru">Здравствуйте! Выберите язык для общения.</span><br /><span lang="kk">Сәлеметсіз бе! Қарым-қатынас тілін таңдаңыз.</span></p>}<div className="language-options" role="group" aria-label="Язык общения / Қарым-қатынас тілі"><button ref={firstLanguageRef} type="button" lang="ru" aria-pressed={language === 'ru'} onClick={() => onLanguageChange('ru')}>Русский</button><button type="button" lang="kk" aria-pressed={language === 'kk'} onClick={() => onLanguageChange('kk')}>Қазақша</button></div>{language && !result && !loading && <div className="starter-prompts"><p>{t.suggestionsHeading}</p><button type="button" onClick={() => useSuggestion(t.demoQuery)}>{t.productSuggestion}<ArrowRight size={14} aria-hidden="true" /></button><button type="button" onClick={() => useSuggestion(t.termsQuery)}>{t.termsSuggestion}<ArrowRight size={14} aria-hidden="true" /></button></div>}</div>
         {result && <>
           <div className="message customer"><small>{t.you}</small><p>{submittedQuery}</p></div>
           <div className="message assistant"><small>{t.assistant}</small><p>{result.answer}</p>{sourceHref && <a className="source-link" href={sourceHref} target="_blank" rel="noreferrer">{t.source}</a>}</div>

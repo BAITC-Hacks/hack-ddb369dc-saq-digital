@@ -42,6 +42,28 @@ afterEach(() => {
 })
 
 describe('EKT assistant integration', () => {
+  it('offers editable starter questions only after choosing a language', () => {
+    render(<App />)
+    expect(screen.queryByRole('button', { name: 'Подобрать автомат' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Русский' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Подобрать автомат' }))
+    expect((screen.getByRole('textbox', { name: 'Сообщение помощнику EKT' }) as HTMLTextAreaElement).value).toContain('3P C16')
+    expect(screen.getByRole('textbox', { name: 'Сообщение помощнику EKT' })).toHaveFocus()
+    expect(searchCatalog).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+    expect(searchCatalog).toHaveBeenCalledWith(expect.stringContaining('8 штук'))
+  })
+
+  it('fills a Kazakh purchase-terms suggestion without submitting it', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Қазақша' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Төлем шарттары' }))
+    expect(screen.getByRole('textbox', { name: 'EKT көмекшісіне хабарлама' })).toHaveValue('Төлем шарттары қандай?')
+    expect(searchCatalog).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Жіберу' }))
+    expect(searchCatalog).toHaveBeenCalledWith('оплата шарттары қандай?')
+  })
+
   it('offers language choices in the first assistant message and persists the chat choice', () => {
     render(<App />)
     expect(screen.getByText(/Выберите язык для общения/)).toBeInTheDocument()
@@ -71,6 +93,7 @@ describe('EKT assistant integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Мысал' }))
     fireEvent.click(await screen.findByRole('button', { name: /Таңдау/ }))
     expect(searchCatalog).toHaveBeenCalledWith(expect.stringContaining('8 шт.'))
+    expect(screen.getByText(/8 дана керек/, { selector: '.message.customer p' })).toBeInTheDocument()
     expect(addToCart).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Иә, қосу' }))
     expect(await screen.findByRole('heading', { name: 'Себет' })).toBeInTheDocument()
