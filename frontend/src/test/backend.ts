@@ -5,8 +5,8 @@ import { validateCatalog } from '../../../backend/src/catalog.js'
 import catalog from '../../../data/catalog.json'
 import purchaseTerms from '../../../backend/purchase-terms.json'
 
-export async function startBackend() {
-  const server = createApp(validateCatalog(catalog), { cartUrl: '/cart', purchaseTerms }).listen(0, '127.0.0.1') as Server
+export async function startBackend(options = {}) {
+  const server = createApp(validateCatalog(catalog), { cartUrl: '/cart', purchaseTerms, ...options }).listen(0, '127.0.0.1') as Server
   await once(server, 'listening')
   const address = server.address()
   if (!address || typeof address === 'string') throw new Error('Expected a TCP address')

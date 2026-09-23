@@ -13,20 +13,29 @@ export class ApiError extends Error {
 }
 
 async function request<T>(path: string, body?: unknown, session?: string): Promise<T> {
-  let response: Response
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), configuration.requestTimeoutMs ?? 35000)
   try {
-    response = await fetch(`${baseUrl}${path}`, {
+    const response = await fetch(`${baseUrl}${path}`, {
       method: body === undefined ? 'GET' : 'POST',
       headers: { 'Content-Type': 'application/json', ...(session && { 'X-Session-Id': session }) },
       ...(body !== undefined && { body: JSON.stringify(body) }),
+      signal: controller.signal,
     })
-  } catch {
+    const payload = await response.json().catch((error) => {
+      if (controller.signal.aborted) throw error
+      return null
+    })
+    if (!payload || typeof payload !== 'object') throw new ApiError('Некорректный ответ сервера.', response.status, 'INVALID_RESPONSE')
+    if (!response.ok) throw new ApiError(payload.error?.message ?? 'Не удалось выполнить запрос.', response.status, payload.error?.code ?? 'REQUEST_FAILED')
+    return payload as T
+  } catch (error) {
+    if (error instanceof ApiError) throw error
+    if (controller.signal.aborted) throw new ApiError('Помощник не ответил вовремя. Повторите запрос.', 0, 'REQUEST_TIMEOUT')
     throw new ApiError('Сервер помощника недоступен. Повторите запрос.', 0, 'NETWORK_ERROR')
+  } finally {
+    clearTimeout(timeout)
   }
-  const payload = await response.json().catch(() => null)
-  if (!payload || typeof payload !== 'object') throw new ApiError('Некорректный ответ сервера.', response.status, 'INVALID_RESPONSE')
-  if (!response.ok) throw new ApiError(payload.error?.message ?? 'Не удалось выполнить запрос.', response.status, payload.error?.code ?? 'REQUEST_FAILED')
-  return payload as T
 }
 
 export function ensureSession(): Promise<string> {
@@ -81,7 +90,7 @@ function displayProduct(product: ApiProduct, isExactMatch: boolean, recommendati
 }
 
 export async function searchCatalog(query: string): Promise<SearchResult> {
-  const result = await sessionRequestFor<ApiSearchResult>('/search', { query })
+  const result = await sessionRequestFor<ApiSearchResult>('/search', { query, conversation: true })
   const quantity = result.quantity ?? result.filters?.quantity ?? (result.intent === 'purchase_terms' ? 0 : 1)
   const products: Product[] = []
   if (result.exactMatch) {
@@ -95,7 +104,7 @@ export async function searchCatalog(query: string): Promise<SearchResult> {
     quantity,
     products,
     message: result.answer,
-    answerKind: result.intent === 'purchase_terms' ? 'purchase-terms' : result.alternatives.length ? 'alternatives' : 'product',
+    answerKind: result.intent === 'conversation' ? 'conversation' : result.intent === 'purchase_terms' ? 'purchase-terms' : result.alternatives.length ? 'alternatives' : 'product',
     interpretedQuery: result.filters
       ? `${result.filters.poles}P · ${result.filters.curve}${result.filters.amps} · ${result.filters.breakingCapacityKa} kA · ${quantity} шт.`
       : '',
