@@ -125,7 +125,14 @@ button:disabled { cursor: not-allowed; opacity: .54; }
 .empty-result { background: #fff; border: 1px dashed #bdd1dc; }
 .loading { display: flex; align-items: center; gap: 6px; margin-top: 8px; color: #607681; font-size: 12px; }
 .composer { padding: 12px 14px 14px; background: #fff; border-top: 1px solid #e0e7eb; }
-.composer textarea { display: block; width: 100%; min-height: 56px; resize: vertical; padding: 9px 10px; color: #293d49; background: #f7f9fa; border: 1px solid #d7e1e6; border-radius: 4px; font-size: 13px; line-height: 1.4; }
+.composer label { display: block; margin-bottom: 6px; color: #293d49; font-size: 12px; font-weight: 700; }
+.composer textarea { display: block; width: 100%; min-height: 56px; max-height: 25dvh; resize: vertical; padding: 9px 10px; color: #293d49; background: #f7f9fa; border: 1px solid #71838e; border-radius: 4px; font-size: 13px; line-height: 1.4; }
+.composer textarea[aria-invalid="true"] { border-color: #a24831; }
+.widget > header, .composer, .pending-cart { flex-shrink: 0; }
+.pending-cart { padding: 10px 14px; border-top: 1px solid #d6e0e5; background: #edf5f8; font-size: 12px; }
+.pending-cart p { margin: 0 0 6px; }
+.pending-cart button { min-height: 44px; padding: 8px 10px; color: #2c7294; background: #fff; border: 1px solid #2c7294; border-radius: 4px; font-weight: 700; }
+.suggestion footer button[aria-disabled="true"] { cursor: not-allowed; }
 .composer textarea::placeholder { color: #60717b; }
 .composer > div { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
 .attach { display: inline-flex; align-items: center; gap: 5px; color: #64727c; font-size: 12px; font-weight: 700; cursor: pointer; }
@@ -157,6 +164,7 @@ button:disabled { cursor: not-allowed; opacity: .54; }
 .confirm-error { padding: 9px 10px; color: #963b31 !important; background: #fff0ec; border-radius: 5px; }
 .cart-screen { max-width: 1290px; min-height: 430px; margin: 0 auto; padding: 36px 28px 100px; }
 .cart-screen h1 { margin: 0 0 28px; color: #2a526b; font-size: 28px; }
+.cart-screen h1:focus-visible { outline: 2px solid #214e68; outline-offset: 4px; }
 .cart-row { display: grid; grid-template-columns: minmax(0, 1fr) 110px 160px; align-items: center; gap: 16px; padding: 20px 0; border-block: 1px solid #e3e8eb; }
 .cart-row small { color: #7e8d96; font-size: 11px; }
 .cart-row h2 { margin: 5px 0 0; font-size: 17px; font-weight: 700; }
@@ -172,3 +180,8 @@ button:disabled { cursor: not-allowed; opacity: .54; }
 @media (max-width: 480px) { .widget { left: 10px; right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); width: auto; max-height: min(78dvh, calc(100dvh - 20px)); } .fab { right: 10px; bottom: max(10px, env(safe-area-inset-bottom)); } .messages { padding: 12px; } .composer { padding: 10px 12px 12px; } .shade { padding: 12px; } .confirm { max-height: calc(100dvh - 24px); padding: 20px; } }
 @media (max-width: 480px) { .widget .agent small, .widget .message small, .widget .tag, .widget .stock, .widget .sku, .widget .specs, .widget .property-list, .widget .certificate, .widget .error, .confirm .eyebrow { font-size: 12px; } }
 @media (prefers-reduced-motion: reduce) { .widget .spin { animation: none !important; } .widget button, .fab, .confirm button { transition: none !important; } }
+/* A single scroll surface keeps every control reachable with zoom or a short viewport. */
+@media (max-height: 540px) {
+  .widget { top: max(12px, env(safe-area-inset-top)); bottom: max(12px, env(safe-area-inset-bottom)); max-height: none; overflow-y: auto; }
+  .widget .messages { flex: none; overflow: visible; }
+}

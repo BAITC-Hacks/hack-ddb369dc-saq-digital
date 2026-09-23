@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
-import { addToCart, getCart, searchCatalog } from './lib/api'
+import { addToCart, ApiError, getCart, searchCatalog } from './lib/api'
 
 vi.mock('./lib/api', async (importOriginal) => {
   const original = await importOriginal<typeof import('./lib/api')>()
@@ -42,6 +42,74 @@ afterEach(() => {
 })
 
 describe('EKT assistant integration', () => {
+  it('associates validation errors with the input and translates them when language changes', () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+    const input = screen.getByRole('textbox', { name: 'Сообщение помощнику EKT' })
+    expect(input).toHaveAttribute('aria-invalid', 'true')
+    expect(input).toHaveAccessibleDescription(expect.stringContaining('5'))
+    fireEvent.click(screen.getByRole('button', { name: 'Қазақша' }))
+    expect(screen.getByRole('alert')).toHaveTextContent(/кемінде 5/i)
+    fireEvent.change(input, { target: { value: 'Артикул' } })
+    expect(input).not.toHaveAttribute('aria-invalid', 'true')
+  })
+
+  it('localizes API errors and marks untranslated server details with their language', async () => {
+    vi.mocked(searchCatalog).mockRejectedValue(new ApiError('Товар недоступен.', 409, 'OUT_OF_STOCK'))
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Қазақша' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Мысал' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Сұрауды орындау мүмкін болмады')
+    expect(screen.getByText('Товар недоступен.')).toHaveAttribute('lang', 'ru')
+  })
+
+  it('lets users dismiss a pending cart request and retry it with the same confirmation', async () => {
+    let rejectCart!: (error: Error) => void
+    vi.mocked(addToCart).mockImplementationOnce(() => new Promise((_, reject) => { rejectCart = reject }))
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    const choose = await screen.findByRole('button', { name: /Выбрать/ })
+    fireEvent.click(choose)
+    fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' }))
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Добавить товар в корзину?' })).not.toBeInTheDocument()
+    expect(choose).toHaveFocus()
+    expect(screen.getByRole('button', { name: 'Проверить добавление' })).toBeInTheDocument()
+    fireEvent.click(choose)
+    expect(addToCart).toHaveBeenCalledTimes(1)
+    await act(async () => rejectCart(new ApiError('Таймаут', 0, 'REQUEST_TIMEOUT')))
+    fireEvent.click(screen.getByRole('button', { name: 'Проверить добавление' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
+    const heading = await screen.findByRole('heading', { name: 'Корзина' })
+    expect(heading).toHaveFocus()
+    expect(document.title).toBe('Корзина — EKT')
+    expect(vi.mocked(addToCart).mock.calls[1][2]).toBe(vi.mocked(addToCart).mock.calls[0][2])
+  })
+
+  it('opens the returned cart and focuses its heading when a dismissed request succeeds', async () => {
+    let resolveCart!: (cart: typeof filledCart) => void
+    vi.mocked(addToCart).mockImplementationOnce(() => new Promise((resolve) => { resolveCart = resolve }))
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Выбрать/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Да, добавить' }))
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(screen.queryByRole('dialog', { name: 'Добавить товар в корзину?' })).not.toBeInTheDocument()
+    await act(async () => resolveCart({ ...filledCart, cartUrl: '/confirmed-cart' }))
+    expect(screen.getByRole('heading', { name: 'Корзина' })).toHaveFocus()
+    expect(window.location.pathname).toBe('/confirmed-cart')
+    expect(addToCart).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps submitted message language after switching the interface language', async () => {
+    render(<App />)
+    fireEvent.click(screen.getByRole('button', { name: 'Demo' }))
+    await screen.findByText('Параметры совпадают.')
+    fireEvent.click(screen.getByRole('button', { name: 'Қазақша' }))
+    expect(screen.getByText(/Нужен автомат/, { selector: '.message.customer p' })).toHaveAttribute('lang', 'ru')
+    expect(screen.getByText(searchResult.answer)).toHaveAttribute('lang', 'ru')
+  })
+
   it('offers editable starter questions only after choosing a language', () => {
     render(<App />)
     expect(screen.queryByRole('button', { name: 'Подобрать автомат' })).not.toBeInTheDocument()
@@ -104,14 +172,15 @@ describe('EKT assistant integration', () => {
     render(<App />)
     const chat = screen.getByRole('dialog', { name: 'Помощник EKT' })
     expect(chat).toBeInTheDocument()
-    screen.getByRole('button', { name: 'Каталог' }).focus()
-    fireEvent.keyDown(window, { key: 'Escape' })
-    expect(chat).toBeInTheDocument()
+    act(() => screen.getByRole('button', { name: 'Каталог' }).focus())
+    expect(chat).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Каталог' })).toHaveFocus()
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть чат с помощником EKT' }))
     screen.getByRole('textbox', { name: 'Сообщение помощнику EKT' }).focus()
     fireEvent.keyDown(window, { key: 'Escape' })
     const launcher = screen.getByRole('button', { name: 'Открыть чат с помощником EKT' })
     expect(launcher).toHaveFocus()
-    expect(chat).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Помощник EKT' })).not.toBeInTheDocument()
     fireEvent.click(launcher)
     expect(screen.getByRole('dialog', { name: 'Помощник EKT' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Русский' })).toHaveFocus()
@@ -138,7 +207,7 @@ describe('EKT assistant integration', () => {
     window.history.replaceState({}, '', '/cart')
     vi.mocked(getCart).mockRejectedValue(new Error('cart unavailable'))
     render(<App />)
-    expect(await screen.findByRole('alert')).toHaveTextContent('cart unavailable')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Не удалось выполнить запрос')
   })
 
   it('keeps confirmation keyboard focus inside the modal and allows Escape before submitting', async () => {
