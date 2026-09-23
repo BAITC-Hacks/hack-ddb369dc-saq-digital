@@ -2,6 +2,8 @@
 
 The backend API returns JSON. Prices are in tenge (`priceKzt`), electrical breaking capacity is in kA (`breakingCapacityKa`). This document is for the frontend and data owners.
 
+File uploads use multipart requests and asynchronous jobs. See the [upload contract](uploads-api.md) for session headers, supported formats, limits, extracted lines, polling, cancellation and errors. `GET /api/uploads/capabilities` is public and remains available during catalog import.
+
 ## Starting the backend
 
 From the repository root, run `npm run setup` and `npm run dev` for the integrated project. Run `npm run build` followed by `npm start` to serve the built frontend and API from one process. For backend-only development, use `npm --prefix backend run dev`. Defaults are in `backend/config.json`; `PORT` and `CATALOG_PATH` override them. The backend validates `data/catalog.json` at startup.
